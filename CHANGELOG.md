@@ -16,6 +16,7 @@
 
 ### Changed
 
+- `src/canvas.rs` を責務ごとのサブモジュール（`tool` / `view` / `geometry` / `snap` / `state` / `draw` / `show`）に分割（#6）。挙動は変わらない。
 - `src/tpl.rs` を責務ごとのサブモジュール（`text` / `io` / `header` / `export` / `format` / `body` / `object` / `shape` / `codec` / `template`）に分割（#6）。挙動・公開 API・.TPL のバイト列は変わらない。
 
 [Unreleased]: https://github.com/scottlz0310/card-template-studio/tree/HEAD
