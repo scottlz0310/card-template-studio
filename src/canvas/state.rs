@@ -2,13 +2,12 @@
 
 use super::geometry::Handle;
 use super::tool::Tool;
-use egui::Pos2;
 
+/// ドラッグ中の操作。座標はインチ（`Pan` だけは画面の px）
 pub(super) enum Drag {
     Move {
         start: (f64, f64),
         origin: Vec<(usize, [f64; 4])>,
-        moved: bool,
     },
     Resize {
         idx: usize,
@@ -16,11 +15,10 @@ pub(super) enum Drag {
         orig: [f64; 4],
     },
     Marquee {
-        start: Pos2,
-        additive: bool,
+        start: (f64, f64),
     },
     Pan {
-        last: Pos2,
+        last: (f32, f32),
     },
     Place {
         tool: Tool,
