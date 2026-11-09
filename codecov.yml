@@ -25,6 +25,7 @@ coverage:
 
   ignore:
     - "src/main.rs"
+    - "build.rs"
 
 comment:
   layout: "reach,diff,flags,tree"

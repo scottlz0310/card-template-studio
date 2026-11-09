@@ -3,6 +3,10 @@ name = "card-template-studio"
 version = "0.1.0"
 edition = "2024"
 description = "現場編集長アルバムのカードテンプレート（.TPL）編集アプリ"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/scottlz0310/card-template-studio"
+authors = ["scottlz0310 <scott.lz0310@gmail.com>"]
+readme = "README.md"
 
 [dependencies]
 eframe = "0.37"
@@ -10,6 +14,9 @@ egui = "0.37"
 encoding_rs = "0.8"
 rfd = "0.18"
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[build-dependencies]
+winres = "0.1.12"
 
 [profile.release]
 opt-level = 3
