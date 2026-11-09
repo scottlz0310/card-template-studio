@@ -1,0 +1,22 @@
+{
+  "name": "card-template-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "現場編集長アルバムのカードテンプレート（.TPL）編集アプリ",
+  "type": "module",
+  "scripts": {
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "lint": "biome lint --write .",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.5",
+    "lefthook": "^2.2.2"
+  },
+  "trustedDependencies": [
+    "@biomejs/biome",
+    "lefthook"
+  ]
+}

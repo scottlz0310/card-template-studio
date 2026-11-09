@@ -1,0 +1,117 @@
+#![cfg_attr(not(test), windows_subsystem = "windows")]
+
+mod app;
+mod canvas;
+mod doc;
+mod layout;
+mod props;
+mod tpl;
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+fn main() -> eframe::Result<()> {
+    let mut screenshot: Option<PathBuf> = None;
+    let mut open: Option<PathBuf> = None;
+    let mut args = std::env::args_os().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--screenshot" {
+            screenshot = args.next().map(PathBuf::from);
+        } else {
+            open = Some(PathBuf::from(a));
+        }
+    }
+
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("カードテンプレート工房")
+            .with_inner_size([1440.0, 900.0])
+            .with_min_inner_size([960.0, 600.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "カードテンプレート工房",
+        options,
+        Box::new(move |cc| {
+            install_fonts(&cc.egui_ctx);
+            Ok(Box::new(app::StudioApp::new(
+                &cc.egui_ctx,
+                open,
+                screenshot,
+            )))
+        }),
+    )
+}
+
+/// Windows に入っている日本語フォントを読み込む（フォント自体は同梱しない）。
+/// カード上の文字は TPL のフォント名に近い書体で描く。
+fn install_fonts(ctx: &egui::Context) {
+    let dir = std::env::var_os("WINDIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+        .join("Fonts");
+    let mut fonts = egui::FontDefinitions::default();
+    let mut load = |key: &str, file: &str, index: u32| -> bool {
+        match std::fs::read(dir.join(file)) {
+            Ok(bytes) => {
+                fonts.font_data.insert(
+                    key.to_owned(),
+                    Arc::new(egui::FontData::from_blob(Arc::new(bytes), index)),
+                );
+                true
+            }
+            Err(_) => false,
+        }
+    };
+    let ui_font = if load("ui", "YuGothM.ttc", 0)
+        || load("ui", "meiryo.ttc", 0)
+        || load("ui", "msgothic.ttc", 0)
+    {
+        Some("ui")
+    } else {
+        None
+    };
+    // ＭＳ ゴシック・ＭＳ 明朝（msgothic.ttc / msmincho.ttc）は egui の描画で字形が出ないため、
+    // 画面表示だけ游ゴシック・游明朝で代用する（TPL に保存するフォント名は変えない）
+    let faces = [
+        ("pgothic", "YuGothM.ttc", 0),
+        ("gothic", "YuGothM.ttc", 0),
+        ("pmincho", "yumin.ttf", 0),
+        ("mincho", "yumin.ttf", 0),
+    ];
+    let mut loaded = Vec::new();
+    for (key, file, index) in faces {
+        if load(key, file, index) {
+            loaded.push(key);
+        }
+    }
+    if let Some(ui) = ui_font {
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            fonts
+                .families
+                .entry(family)
+                .or_default()
+                .insert(0, ui.to_owned());
+        }
+    }
+    for key in ["pgothic", "gothic", "pmincho", "mincho"] {
+        let mut list = Vec::new();
+        if loaded.contains(&key) {
+            list.push(key.to_owned());
+        }
+        if let Some(ui) = ui_font {
+            list.push(ui.to_owned());
+        }
+        list.extend(
+            fonts
+                .families
+                .get(&egui::FontFamily::Proportional)
+                .cloned()
+                .unwrap_or_default(),
+        );
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(key.into()), list);
+    }
+    ctx.set_fonts(fonts);
+}

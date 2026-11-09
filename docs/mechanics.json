@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "values": [
+    { "name": "header tag", "group": "file", "value": "TMP1", "source": "function 0x444f00" },
+    { "name": "header version", "group": "file", "value": 1, "source": "function 0x445000" },
+    {
+      "name": "sub version for object version 10/11/12",
+      "group": "file",
+      "value": "2/3/4",
+      "source": "function 0x445000"
+    },
+    {
+      "name": "header size",
+      "group": "file",
+      "value": 20,
+      "unit": "bytes",
+      "source": "function 0x445ca0"
+    },
+    {
+      "name": "card block",
+      "group": "file",
+      "value": "CARD + bgcolor + count (12 bytes)",
+      "source": "function 0x409c00"
+    },
+    {
+      "name": "object header size",
+      "group": "file",
+      "value": 44,
+      "unit": "bytes",
+      "source": "function 0x407660"
+    },
+    {
+      "name": "coordinate unit",
+      "group": "file",
+      "value": "inch",
+      "source": "function 0x421380 (pt / 72), sample extents"
+    },
+    {
+      "name": "OBJ3 trailer",
+      "group": "file",
+      "value": "u32 after body",
+      "source": "function 0x40d230"
+    },
+    {
+      "name": "export info text",
+      "group": "export",
+      "value": "Ver7.10Template\\r\\n",
+      "source": "string at 0x598d94, sample expinf"
+    },
+    {
+      "name": "layout folder name",
+      "group": "export",
+      "value": "TEMP{cols}x{rows}_{H|V}",
+      "source": "string %dx%d_%s at 0x585dec"
+    },
+    { "name": "kind picture", "group": "objects", "value": 2, "source": "function 0x40d230" },
+    { "name": "kind caption", "group": "objects", "value": 3, "source": "function 0x40d230" },
+    { "name": "kind cm value", "group": "objects", "value": 5, "source": "function 0x40d230" },
+    {
+      "name": "kinds kept as raw bytes",
+      "group": "objects",
+      "value": "4,6,7,8,9",
+      "source": "function 0x40d230 (per user policy)"
+    },
+    {
+      "name": "caption default font size",
+      "group": "text",
+      "value": 12,
+      "unit": "pt",
+      "source": "function 0x407dc0"
+    },
+    {
+      "name": "caption default weight",
+      "group": "text",
+      "value": 400,
+      "source": "function 0x407310"
+    },
+    {
+      "name": "bold threshold",
+      "group": "text",
+      "value": 400,
+      "source": "function 0x407790 (weight > 400)"
+    },
+    {
+      "name": "caption default text color",
+      "group": "text",
+      "value": "0x000000",
+      "source": "function 0x407310"
+    },
+    {
+      "name": "caption default background",
+      "group": "text",
+      "value": "0xFFFFFF",
+      "source": "function 0x407310"
+    },
+    {
+      "name": "caption unknown grey colors",
+      "group": "text",
+      "value": "0x808080",
+      "source": "function 0x407310 (meaning unknown, kept)"
+    },
+    {
+      "name": "caption unknown value at +0x18",
+      "group": "text",
+      "value": -45,
+      "source": "function 0x407310 (meaning unknown, kept)"
+    },
+    {
+      "name": "line/char spacing unit",
+      "group": "text",
+      "value": "percent of font size",
+      "source": "function 0x4d80e0"
+    },
+    {
+      "name": "align values",
+      "group": "text",
+      "value": "0 left, 1 center, 2 right",
+      "source": "function 0x407790"
+    },
+    {
+      "name": "vertical text flag",
+      "group": "text",
+      "value": "fmt[3] == 0",
+      "source": "function 0x4ea200"
+    },
+    {
+      "name": "border widths",
+      "group": "border",
+      "value": "0.1/0.3/0.7",
+      "unit": "mm",
+      "source": "data 0x580578"
+    },
+    {
+      "name": "border inset for style 1/2",
+      "group": "border",
+      "value": "0.05/0.1",
+      "source": "function 0x408b30, data 0x580568"
+    },
+    {
+      "name": "shape default round ratio",
+      "group": "shapes",
+      "value": 0.3,
+      "source": "function 0x421420, data 0x57edd0"
+    },
+    {
+      "name": "shape kinds",
+      "group": "shapes",
+      "value": "0 rect,1 round,2 ellipse,3 line,4 arrow",
+      "source": "function 0x4247a0"
+    },
+    {
+      "name": "card size 1x3 portrait (width)",
+      "group": "layout",
+      "value": 8.368,
+      "unit": "inch",
+      "estimated": true
+    },
+    {
+      "name": "card size 1x3 portrait (height)",
+      "group": "layout",
+      "value": 3.998,
+      "unit": "inch",
+      "estimated": true
+    },
+    {
+      "name": "card size rule",
+      "group": "layout",
+      "value": "measured sample extents + symmetric margin; A4/division when unmeasured",
+      "estimated": true
+    },
+    { "name": "snap distance", "group": "editor", "value": 7, "unit": "px", "estimated": true },
+    { "name": "arrow key nudge", "group": "editor", "value": 0.5, "unit": "mm", "estimated": true }
+  ]
+}

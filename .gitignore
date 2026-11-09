@@ -1,0 +1,27 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# 動作確認用の画面写真・サンプルの写し・個人のパスを含む試験スクリプト
+/shots
+
+# Node / Bun
+node_modules/
+bun.lockb
+# bun.lock (text format) is tracked
+
+# Temporary & backup files
+*.tmp
+*.bak
+*.swp
+*~
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.local
+
+# 調査・作業用セッションおよびログ
+/.investigation/

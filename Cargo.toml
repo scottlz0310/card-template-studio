@@ -1,0 +1,15 @@
+[package]
+name = "card-template-studio"
+version = "0.1.0"
+edition = "2024"
+description = "現場編集長アルバムのカードテンプレート（.TPL）編集アプリ"
+
+[dependencies]
+eframe = "0.37"
+egui = "0.37"
+encoding_rs = "0.8"
+rfd = "0.18"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.release]
+opt-level = 3
