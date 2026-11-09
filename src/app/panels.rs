@@ -10,10 +10,8 @@ impl StudioApp {
         match self.library.clone() {
             None => {
                 ui.label(RichText::new("本体の「カード」メニュー →「テンプレートのエクスポート」で作った TMPEXP フォルダを開くと、ここに一覧が出ます。").small());
-                if ui.button("📂 TMPEXP フォルダを開く…").clicked()
-                    && let Some(p) = rfd::FileDialog::new().pick_folder()
-                {
-                    self.open_library(p);
+                if ui.button("📂 TMPEXP フォルダを開く…").clicked() {
+                    self.open_library_dialog(None);
                 }
             }
             Some(lib) => {

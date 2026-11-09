@@ -5,11 +5,15 @@ use crate::doc::{self, Align, Document, Library, validate_name};
 use crate::layout::{PRESETS, layout_label};
 use crate::props;
 use crate::tpl::{Header, MM_PER_INCH, Object, Template};
+use dialogs::{Dialogs, NativeDialogs};
 use egui::{Color32, Key, KeyboardShortcut, Modifiers, RichText};
 use screenshot::Shot;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+mod dialog_tests;
+mod dialogs;
 mod files;
 mod menu;
 mod modals;
@@ -57,10 +61,20 @@ pub struct StudioApp {
     shot: Option<Shot>,
     allow_close: bool,
     last_title: String,
+    dialogs: Box<dyn Dialogs>,
 }
 
 impl StudioApp {
     pub fn new(ctx: &egui::Context, open: Option<PathBuf>, screenshot: Option<PathBuf>) -> Self {
+        Self::with_dialogs(ctx, open, screenshot, Box::new(NativeDialogs))
+    }
+
+    fn with_dialogs(
+        ctx: &egui::Context,
+        open: Option<PathBuf>,
+        screenshot: Option<PathBuf>,
+        dialogs: Box<dyn Dialogs>,
+    ) -> Self {
         style(ctx);
         let mut app = Self {
             doc: Document::new(
@@ -78,6 +92,7 @@ impl StudioApp {
             shot: None,
             allow_close: false,
             last_title: String::new(),
+            dialogs,
         };
         if let Some(p) = open {
             if p.is_dir() {
