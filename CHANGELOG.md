@@ -16,6 +16,7 @@
 
 ### Changed
 
+- Codecov の集計対象から、OS のネイティブダイアログを呼ぶだけの `src/app/dialogs.rs` を除外（`src/main.rs` と同じ扱い）。
 - ファイル・フォルダ選択と上書き確認のダイアログを `Dialogs` trait 越しにし（本体の実装は `rfd` を呼ぶ `NativeDialogs` に集約）、テストでは差し替えられるようにした（#6）。挙動は変わらない。
 - `src/app.rs` を責務ごとのサブモジュール（`files` / `shortcuts` / `menu` / `panels` / `modals` / `screenshot`）に分割（#6）。挙動は変わらない。
 - 編集面の操作（押す・ドラッグ・離す・クリック）の判断を、egui に依存しない `canvas/interaction.rs` に切り出し、全体表示・ズームの計算を `canvas/view.rs` に移した（#6）。挙動は変わらない。

@@ -26,6 +26,8 @@ coverage:
   ignore:
     - "src/main.rs"
     - "build.rs"
+    # OS のネイティブダイアログ（rfd）を呼ぶだけの境界。テストでは FakeDialogs に差し替える
+    - "src/app/dialogs.rs"
 
 comment:
   layout: "reach,diff,flags,tree"
