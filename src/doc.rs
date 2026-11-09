@@ -639,6 +639,7 @@ pub fn starter_template(header: Header) -> Template {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
 
     fn doc_with(n: usize) -> Document {
         let mut d = Document::new(Template::default(), "t", None);
@@ -646,6 +647,17 @@ mod tests {
             let x = k as f64;
             d.add_caption("a", "", false, [x, 0.0, x + 0.5, 0.2 + k as f64 * 0.1]);
         }
+        d
+    }
+
+    /// 履歴も未保存の印も選択も無い状態から始める
+    fn clean_doc(n: usize) -> Document {
+        let mut d = doc_with(n);
+        d.undo.clear();
+        d.redo.clear();
+        d.coalesce = None;
+        d.dirty = false;
+        d.selection.clear();
         d
     }
 
@@ -764,5 +776,520 @@ mod tests {
         assert!(lib.is_export);
         assert_eq!(lib.entries.len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ----- 名前 -----
+
+    #[test]
+    fn name_validation_messages() {
+        let long = "あ".repeat(101);
+        let ok_long = "あ".repeat(100);
+        let cases: Vec<(&str, Option<&str>)> = vec![
+            ("工事写真", None),
+            ("  前後に空白  ", None),
+            (ok_long.as_str(), None),
+            ("", Some("入力してください")),
+            ("\t", Some("入力してください")),
+            ("a\\b", Some("使用できない文字")),
+            ("a|b", Some("使用できない文字")),
+            ("a\nb", Some("使用できない文字")),
+            ("😀", Some("扱えない文字")),
+            (long.as_str(), Some("長すぎ")),
+        ];
+        for (name, err) in cases {
+            match (validate_name(name), err) {
+                (Ok(()), None) => {}
+                (Err(e), Some(part)) => assert!(e.contains(part), "{name:?}: {e}"),
+                (got, want) => panic!("{name:?}: {got:?} / {want:?}"),
+            }
+        }
+    }
+
+    // ----- 元に戻す -----
+
+    #[test]
+    fn new_change_clears_redo_and_caps_history() {
+        let mut d = doc_with(1);
+        d.select_all();
+        d.move_selected(1.0, 0.0, None);
+        d.undo();
+        assert!(d.can_redo());
+        d.move_selected(2.0, 0.0, None);
+        assert!(!d.can_redo(), "新しい操作でやり直しは消える");
+        for _ in 0..250 {
+            d.move_selected(0.01, 0.0, None);
+        }
+        let mut n = 0;
+        while d.can_undo() {
+            d.undo();
+            n += 1;
+        }
+        assert_eq!(n, 200, "履歴は 200 段まで");
+    }
+
+    #[test]
+    fn undo_and_redo_on_empty_history_do_nothing() {
+        let mut d = clean_doc(1);
+        let before = d.template.clone();
+        d.undo();
+        d.redo();
+        assert_eq!(d.template, before);
+        assert!(!d.dirty);
+        assert!(!d.can_undo() && !d.can_redo());
+    }
+
+    #[test]
+    fn undo_restores_selection_too() {
+        let mut d = doc_with(3);
+        d.selection = [0, 2].into();
+        d.move_selected(1.0, 0.0, None);
+        d.selection = [1].into();
+        d.undo();
+        assert_eq!(d.selection, [0, 2].into());
+        d.redo();
+        assert_eq!(d.selection, [1].into());
+    }
+
+    #[test]
+    fn coalesce_key_changes_start_new_steps() {
+        let mut d = clean_doc(1);
+        d.select_all();
+        d.move_selected(0.1, 0.0, Some("a"));
+        d.move_selected(0.1, 0.0, Some("a"));
+        d.move_selected(0.1, 0.0, Some("b"));
+        d.end_coalesce();
+        d.move_selected(0.1, 0.0, Some("b"));
+        let mut n = 0;
+        while d.can_undo() {
+            d.undo();
+            n += 1;
+        }
+        assert_eq!(n, 3);
+    }
+
+    // ----- 追加・削除・複製 -----
+
+    #[test]
+    fn add_picture_inherits_from_existing_picture_but_clears_paths() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let mut p = PictureBody {
+            b8: 0x99,
+            guid: SjisString::from_str("guid"),
+            path: SjisString::from_str("C:\\a.jpg"),
+            ..PictureBody::default()
+        };
+        p.e8 = 7;
+        d.template
+            .objects
+            .push(Object::new(Body::Picture(p), [0.0, 0.0, 1.0, 1.0]));
+        let i = d.add_picture([2.0, 0.0, 3.0, 1.0]);
+        assert_eq!(d.selection, [i].into());
+        match &d.template.objects[i].body {
+            Body::Picture(p) => {
+                assert_eq!((p.b8, p.e8), (0x99, 7), "未解明の値は引き継ぐ");
+                assert!(p.guid.is_empty() && p.path.is_empty());
+            }
+            _ => unreachable!(),
+        }
+        assert!(d.dirty);
+    }
+
+    #[test]
+    fn add_caption_inherits_format_of_same_role() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let mut label = CaptionBody::new("固定", "", false, 20);
+        label.border = 0;
+        d.template
+            .objects
+            .push(Object::new(Body::Caption(label), [0.0, 0.0, 1.0, 1.0]));
+        let a = d.add_caption("新しい項目名", "工種", false, [0.0, 1.0, 1.0, 2.0]);
+        let b = d.add_caption("", "工種", true, [1.0, 1.0, 2.0, 2.0]);
+        let get = |i: usize| match &d.template.objects[i].body {
+            Body::Caption(c) => c.clone(),
+            _ => unreachable!(),
+        };
+        let (ca, cb) = (get(a), get(b));
+        assert_eq!(ca.border, 0, "同じ役割の物から書式を引き継ぐ");
+        assert_eq!(ca.text.to_string_lossy(), "新しい項目名");
+        assert_eq!(ca.value.to_string_lossy(), "0");
+        assert_eq!(cb.border, 1, "項目値は既定の書式");
+        assert_eq!(cb.is_value, 1);
+        assert_eq!(tpl::read_fmt_u16(&cb.fmt, tpl::fmt_off::SIZE), 12);
+    }
+
+    #[test]
+    fn caption_link_follows_picture_count() {
+        let mut d = Document::new(Template::default(), "t", None);
+        d.add_picture([0.0, 0.0, 1.0, 1.0]);
+        let a = d.add_caption("a", "", false, [0.0; 4]);
+        assert_eq!(d.template.objects[a].link, 0, "写真 1 枚なら所属なし");
+        d.add_picture([2.0, 0.0, 3.0, 1.0]);
+        // 写真が 2 枚以上あるとき: 直前の文字項目の所属を引き継ぐ（それが 0 なら 0 のまま）
+        let b = d.add_caption("b", "", false, [0.0; 4]);
+        assert_eq!(d.template.objects[b].link, 0);
+        d.template.objects[b].link = 2;
+        let c = d.add_caption("c", "", false, [0.0; 4]);
+        assert_eq!(d.template.objects[c].link, 2);
+        // 文字項目がまだ無ければ 1 枚目の写真
+        let mut d = Document::new(Template::default(), "t", None);
+        d.add_picture([0.0, 0.0, 1.0, 1.0]);
+        d.add_picture([2.0, 0.0, 3.0, 1.0]);
+        let first = d.add_caption("a", "", false, [0.0; 4]);
+        assert_eq!(d.template.objects[first].link, 1);
+    }
+
+    #[test]
+    fn field_row_adds_label_then_value() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let (a, b) = d.add_field_row("工種", (1.0, 1.0), 0.5, 1.5, 0.25);
+        assert_eq!((a, b), (0, 1));
+        assert_eq!(d.template.objects[0].rect, [1.0, 1.0, 1.5, 1.25]);
+        assert_eq!(d.template.objects[1].rect, [1.5, 1.0, 3.0, 1.25]);
+        assert_eq!(d.selection, [1].into());
+        // 現状の挙動の固定: 名前と値は「元に戻す」2 段になる（1 段にまとめる意図の
+        // coalesce 印は、checkpoint(None) が見ないため効いていない）
+        d.undo();
+        assert_eq!(d.template.objects.len(), 1);
+        d.undo();
+        assert!(d.template.objects.is_empty());
+    }
+
+    #[test]
+    fn delete_copy_and_paste() {
+        let mut d = doc_with(3);
+        d.selection = [0, 2].into();
+        let copied = d.copy_selected();
+        assert_eq!(copied.len(), 2);
+        assert_eq!(d.delete_selected(), 2);
+        assert_eq!(d.template.objects.len(), 1);
+        assert!(d.selection.is_empty());
+        assert_eq!(d.delete_selected(), 0, "選択なしでは何も消えない");
+        let before = d.template.objects.len();
+        d.paste(&[], 0.1);
+        assert_eq!(d.template.objects.len(), before, "空の貼り付けは何もしない");
+        d.paste(&copied, 0.5);
+        assert_eq!(d.template.objects.len(), 3);
+        assert_eq!(d.selection, [1, 2].into());
+        let r = d.template.objects[1].rect;
+        assert!((r[0] - (copied[0].rect[0] + 0.5)).abs() < 1e-9);
+        assert!((r[3] - (copied[0].rect[3] + 0.5)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn move_selected_with_nothing_selected_is_noop() {
+        let mut d = clean_doc(2);
+        d.move_selected(1.0, 1.0, None);
+        assert!(!d.dirty && !d.can_undo());
+    }
+
+    // ----- 配置 -----
+
+    #[test]
+    fn align_every_direction() {
+        // 3 個: x = 0, 1, 2 / 幅 0.5 / 高さ 0.2, 0.3, 0.4
+        let cases = [
+            (Align::Left, 0usize, 0.0),
+            (Align::Right, 2, 2.5),
+            (Align::Top, 1, 0.0),
+            (Align::Bottom, 3, 0.4),
+        ];
+        for (how, edge, expected) in cases {
+            let mut d = doc_with(3);
+            d.select_all();
+            d.align(how);
+            for o in &d.template.objects {
+                assert!((o.normalized()[edge] - expected).abs() < 1e-9, "{how:?}");
+            }
+        }
+        let mut d = doc_with(3);
+        d.select_all();
+        d.align(Align::CenterH);
+        for o in &d.template.objects {
+            let n = o.normalized();
+            assert!(((n[0] + n[2]) / 2.0 - 1.25).abs() < 1e-9);
+        }
+        d.align(Align::CenterV);
+        for o in &d.template.objects {
+            let n = o.normalized();
+            assert!(((n[1] + n[3]) / 2.0 - 0.2).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn align_to_card_center_works_for_a_single_object() {
+        let mut d = clean_doc(1);
+        d.select_all();
+        let frame = crate::layout::card_frame(&d.template);
+        d.align(Align::CardCenterH);
+        d.align(Align::CardCenterV);
+        let n = d.template.objects[0].normalized();
+        assert!(((n[0] + n[2]) / 2.0 - frame.width / 2.0).abs() < 1e-9);
+        assert!(((n[1] + n[3]) / 2.0 - frame.height / 2.0).abs() < 1e-9);
+        // 1 個では他の揃えは何もしない
+        let mut d = clean_doc(1);
+        d.select_all();
+        d.align(Align::Left);
+        assert!(!d.dirty);
+    }
+
+    #[test]
+    fn distribute_needs_three_and_works_vertically() {
+        let mut d = clean_doc(2);
+        d.select_all();
+        d.distribute(true);
+        assert!(!d.dirty, "2 個では何もしない");
+        let mut d = doc_with(3);
+        d.template.objects[1].rect = [0.0, 0.5, 0.5, 0.6];
+        d.template.objects[2].rect = [0.0, 2.0, 0.5, 2.3];
+        d.template.objects[0].rect = [0.0, 0.0, 0.5, 0.2];
+        d.select_all();
+        d.distribute(false);
+        let n: Vec<_> = d.template.objects.iter().map(Object::normalized).collect();
+        assert!(((n[1][1] - n[0][3]) - (n[2][1] - n[1][3])).abs() < 1e-9);
+    }
+
+    #[test]
+    fn match_size_uses_first_selected() {
+        let mut d = doc_with(3);
+        d.template.objects[0].rect = [0.0, 0.0, 2.0, 1.0];
+        d.selection = [0, 1, 2].into();
+        d.match_size(true, false);
+        for o in &d.template.objects {
+            let n = o.normalized();
+            assert!((n[2] - n[0] - 2.0).abs() < 1e-9);
+        }
+        assert!(
+            (d.template.objects[1].normalized()[3] - 0.3).abs() < 1e-9,
+            "高さはそのまま"
+        );
+        d.match_size(false, true);
+        assert!((d.template.objects[2].normalized()[3] - 1.0).abs() < 1e-9);
+        let mut one = clean_doc(1);
+        one.select_all();
+        one.match_size(true, true);
+        assert!(!one.dirty);
+    }
+
+    #[test]
+    fn reorder_to_back_and_multi() {
+        let mut d = doc_with(4);
+        let ids: Vec<_> = d.template.objects.iter().map(|o| o.rect[0]).collect();
+        d.selection = [1, 3].into();
+        d.reorder(false);
+        let order: Vec<_> = d.template.objects.iter().map(|o| o.rect[0]).collect();
+        assert_eq!(order, vec![ids[1], ids[3], ids[0], ids[2]]);
+        assert_eq!(d.selection, [0, 1].into());
+        d.reorder(true);
+        let order: Vec<_> = d.template.objects.iter().map(|o| o.rect[0]).collect();
+        assert_eq!(order, vec![ids[0], ids[2], ids[1], ids[3]]);
+        assert_eq!(d.selection, [2, 3].into());
+        let mut none = clean_doc(2);
+        none.reorder(true);
+        assert!(!none.dirty);
+    }
+
+    #[test]
+    fn set_layout_changes_header_once() {
+        let mut d = doc_with(0);
+        d.set_layout(1, 3, true);
+        assert!(!d.dirty, "同じレイアウトなら何もしない");
+        d.set_layout(2, 2, false);
+        let h = &d.template.header;
+        assert_eq!((h.cols, h.rows, h.is_portrait()), (2, 2, false));
+        d.undo();
+        assert_eq!(d.template.header.cols, 1);
+    }
+
+    #[test]
+    fn selection_helpers() {
+        let mut d = doc_with(2);
+        d.template.objects.push(Object {
+            tag_version: 3,
+            kind: tpl::KIND_RECT,
+            link: 0,
+            rect: [0.0; 4],
+            body: Body::Passthrough(vec![0; 81]),
+            trailer: Some(0),
+        });
+        assert!(d.editable(0) && !d.editable(2) && !d.editable(99));
+        d.select_all();
+        assert_eq!(d.selection.len(), 3);
+        assert_eq!(d.selected_editable(), vec![0, 1]);
+        assert_eq!(d.bounds(&[]), None);
+        let b = d.bounds(&[0, 1]).unwrap();
+        assert_eq!(b[0], 0.0);
+        assert_eq!(b[2], 1.5);
+    }
+
+    // ----- ファイル -----
+
+    #[test]
+    fn save_and_open_roundtrip() {
+        let tmp = TempDir::new("doc-save");
+        let path = tmp.path().join("下位").join("見本.TPL");
+        let mut d = Document::new(starter_template(Header::default()), "新規", None);
+        d.checkpoint(None);
+        assert!(d.dirty);
+        d.save_to(&path).expect("save");
+        assert!(!d.dirty);
+        assert_eq!(d.name, "見本");
+        assert_eq!(d.path.as_deref(), Some(path.as_path()));
+        let back = Document::open(&path).expect("open");
+        assert_eq!(back.template, d.template);
+        assert_eq!(back.name, "見本");
+        assert_eq!(std::fs::read(&path).unwrap(), d.template.to_bytes());
+    }
+
+    #[test]
+    fn open_reports_missing_and_broken_files() {
+        let tmp = TempDir::new("doc-open");
+        let missing = tmp.path().join("無い.TPL");
+        let e = Document::open(&missing).err().expect("error");
+        assert!(e.contains("読めません"), "{e}");
+        let broken = tmp.path().join("壊れ.TPL");
+        std::fs::write(&broken, b"not a template").unwrap();
+        let e = Document::open(&broken).err().expect("error");
+        assert!(e.contains("テンプレートとして読めません"), "{e}");
+    }
+
+    #[test]
+    fn save_reports_unwritable_destination() {
+        let tmp = TempDir::new("doc-save-err");
+        let blocker = tmp.path().join("file");
+        std::fs::write(&blocker, b"x").unwrap();
+        let mut d = Document::new(Template::default(), "t", None);
+        d.checkpoint(None);
+        // ファイルの下にはフォルダを作れない
+        let e = d.save_to(&blocker.join("x.TPL")).unwrap_err();
+        assert!(e.contains("作れません"), "{e}");
+        assert!(d.dirty, "失敗したら未保存のまま");
+        assert!(d.path.is_none());
+    }
+
+    // ----- 置き場 -----
+
+    #[test]
+    fn library_scan_lists_only_layout_folders_sorted() {
+        let tmp = TempDir::new("doc-lib");
+        let root = tmp.path();
+        let t = Template::default().to_bytes();
+        for (dir, file) in [
+            ("TEMP1x3_V", "b.TPL"),
+            ("TEMP1x3_V", "a.tpl"),
+            ("TEMP2x1_H", "z.TPL"),
+            ("TEMP1x3_V", "memo.txt"),
+            ("misc", "ignored.TPL"),
+        ] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+            std::fs::write(root.join(dir).join(file), &t).unwrap();
+        }
+        std::fs::write(root.join("TEMP1x1_V"), b"file, not folder").unwrap();
+        let lib = Library::scan(root).unwrap();
+        let names: Vec<_> = lib
+            .entries
+            .iter()
+            .map(|e| format!("{}/{}", e.folder, e.name))
+            .collect();
+        assert_eq!(names, vec!["TEMP1x3_V/a", "TEMP1x3_V/b", "TEMP2x1_H/z"]);
+        assert!(!lib.is_export, "expinf が無い");
+        std::fs::write(root.join("expinf"), EXPINF_TEXT).unwrap();
+        assert!(Library::scan(root).unwrap().is_export);
+        std::fs::write(root.join("expinf"), b"other").unwrap();
+        assert!(!Library::scan(root).unwrap().is_export);
+    }
+
+    #[test]
+    fn library_scan_fails_for_missing_root() {
+        let tmp = TempDir::new("doc-lib-missing");
+        let e = Library::scan(&tmp.path().join("無い")).unwrap_err();
+        assert!(e.contains("開けません"), "{e}");
+    }
+
+    #[test]
+    fn library_path_follows_layout() {
+        let lib = Library {
+            root: PathBuf::from("R"),
+            ..Library::default()
+        };
+        let h = Header {
+            cols: 2,
+            rows: 1,
+            orientation: 0,
+            ..Header::default()
+        };
+        assert_eq!(
+            lib.path_for(&h, "名前"),
+            PathBuf::from("R/TEMP2x1_H/名前.TPL")
+        );
+    }
+
+    // ----- 書き出し -----
+
+    #[test]
+    fn export_accepts_tmpexp_folder_and_validates_names() {
+        let tmp = TempDir::new("doc-export");
+        let t = Template::default();
+        // TMPEXP を直接指定すると、その中に書く（二重にしない）
+        let root = tmp.path().join("tmpexp");
+        let written = export_templates(&root, &[("a".into(), t.clone())], false).unwrap();
+        assert!(written[0].starts_with(&root));
+        assert!(!root.join("TMPEXP").exists());
+        // 不正な名前は書き出し前に弾く
+        let e = export_templates(tmp.path(), &[("a/b".into(), t.clone())], false).unwrap_err();
+        assert!(e.contains("使用できない文字"), "{e}");
+        // 名前の前後の空白は取り除く
+        let w = export_templates(tmp.path(), &[("  x  ".into(), t.clone())], false).unwrap();
+        assert!(w[0].ends_with("x.TPL"));
+        // 同名は overwrite が無ければ拒否、複数件は同じ expinf を共有
+        let e = export_templates(tmp.path(), &[("x".into(), t.clone())], false).unwrap_err();
+        assert!(e.contains("同名"), "{e}");
+        let items = vec![("p".to_string(), t.clone()), ("q".to_string(), t)];
+        assert_eq!(export_templates(tmp.path(), &items, true).unwrap().len(), 2);
+        assert_eq!(
+            std::fs::read(tmp.path().join("TMPEXP/expinf")).unwrap(),
+            EXPINF_TEXT
+        );
+    }
+
+    #[test]
+    fn export_keeps_existing_expinf() {
+        let tmp = TempDir::new("doc-export-inf");
+        let root = tmp.path().join("TMPEXP");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("expinf"), b"keep").unwrap();
+        export_templates(tmp.path(), &[("a".into(), Template::default())], false).unwrap();
+        assert_eq!(std::fs::read(root.join("expinf")).unwrap(), b"keep");
+    }
+
+    // ----- 見本 -----
+
+    #[test]
+    fn starter_template_layouts() {
+        let layouts = [(1u16, 3u16, 1u32), (2, 2, 0), (5, 5, 1), (1, 1, 0)];
+        for (cols, rows, orientation) in layouts {
+            let header = Header {
+                cols,
+                rows,
+                orientation,
+                ..Header::default()
+            };
+            let t = starter_template(header);
+            assert_eq!(t.objects.len(), 1 + 5 * 2, "{cols}x{rows}");
+            assert_eq!(t.objects[0].kind, KIND_PICTURE);
+            assert!(t.objects[1..].iter().all(|o| o.kind == KIND_CAPTION));
+            let frame = crate::layout::card_frame(&t);
+            for o in &t.objects {
+                let n = o.normalized();
+                assert!(n[0] >= 0.0 && n[1] >= 0.0, "{cols}x{rows} {n:?}");
+                assert!(n[2] <= frame.width + 1e-9 && n[3] <= frame.height + 1e-9);
+            }
+            assert_eq!(Template::parse(&t.to_bytes()).unwrap(), t);
+        }
+    }
+
+    #[test]
+    fn known_fields_are_unique() {
+        let set: BTreeSet<_> = KNOWN_FIELDS.iter().collect();
+        assert_eq!(set.len(), KNOWN_FIELDS.len());
     }
 }

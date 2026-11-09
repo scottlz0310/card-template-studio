@@ -12,5 +12,6 @@
 - `--screenshot <file.png>` で画面を PNG に保存して終了する確認用の起動方法。
 - リポジトリ基盤・規約準拠の補完（`.review-raven/ci-policy.json`、`rust-toolchain.toml`、`LICENSE-MIT` / `LICENSE-APACHE`、`CONTRIBUTING.md`）。
 - アプリアイコン案（`assets/icon.png`, `icon.ico`）および `winres` による Windows リソース埋め込み。
+- 主要モジュール分割（#6）の前段として、現状の挙動を固定するテストを 17 件から 176 件に拡充。画面操作のテストには `egui_kittest`（dev-dependency）と、ウィンドウを使わない入力シミュレータを使う。
 
 [Unreleased]: https://github.com/scottlz0310/card-template-studio/tree/HEAD

@@ -20,3 +20,6 @@ winres = "0.1.12"
 
 [profile.release]
 opt-level = 3
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["eframe"] }

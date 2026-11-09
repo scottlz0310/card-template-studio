@@ -5,6 +5,8 @@ mod canvas;
 mod doc;
 mod layout;
 mod props;
+#[cfg(test)]
+mod test_support;
 mod tpl;
 
 use std::path::PathBuf;
