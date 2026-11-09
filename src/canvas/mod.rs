@@ -4,6 +4,7 @@ use egui::Color32;
 
 mod draw;
 mod geometry;
+mod interaction;
 mod show;
 mod snap;
 mod state;

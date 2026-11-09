@@ -1,16 +1,16 @@
 //! 編集面の 1 フレーム：入力を読み、文書を更新し、描く。
 
 use super::draw::*;
-use super::geometry::*;
-use super::snap::*;
+use super::geometry::Handle;
+use super::interaction::{self, Env, Mods, SnapCfg, Target};
 use super::state::*;
 use super::tool::*;
 use super::view::*;
 use super::*;
 use crate::doc::Document;
 use crate::layout::card_frame;
-use crate::tpl::{self, Body, MM_PER_INCH, Object};
-use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
+use crate::tpl::{self, MM_PER_INCH};
+use egui::{Align2, Color32, FontId, Rect, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -27,14 +27,9 @@ pub fn show(
 
     let work = Rect::from_min_max(area.min + vec2(RULER, RULER), area.max);
     if view.fit_pending && work.width() > 50.0 {
-        let zx = (work.width() - 80.0) / (frame.width as f32 * PX_PER_INCH);
-        let zy = (work.height() - 80.0) / (frame.height as f32 * PX_PER_INCH);
-        view.zoom = zx.min(zy).clamp(0.2, 8.0);
-        let ppi = PX_PER_INCH * view.zoom;
-        view.pan = vec2(
-            (work.width() - frame.width as f32 * ppi) / 2.0,
-            (work.height() - frame.height as f32 * ppi) / 2.0,
-        );
+        let (zoom, pan) = fit((work.width(), work.height()), (frame.width, frame.height));
+        view.zoom = zoom;
+        view.pan = vec2(pan.0, pan.1);
         view.fit_pending = false;
     }
 
@@ -43,10 +38,15 @@ pub fn show(
     if let Some(hp) = hover {
         let (zoom_delta, scroll) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta));
         if zoom_delta != 1.0 {
-            let old = view.zoom;
-            view.zoom = (view.zoom * zoom_delta).clamp(0.2, 8.0);
-            let anchor = hp - work.min - view.pan;
-            view.pan += anchor - anchor * (view.zoom / old);
+            let rel = hp - work.min;
+            let (zoom, pan) = zoom_at(
+                view.zoom,
+                (view.pan.x, view.pan.y),
+                zoom_delta,
+                (rel.x, rel.y),
+            );
+            view.zoom = zoom;
+            view.pan = vec2(pan.0, pan.1);
         } else if scroll != Vec2::ZERO {
             view.pan += scroll;
         }
@@ -71,9 +71,8 @@ pub fn show(
     }
 
     // ----- 入力 -----
+    // egui の値を、インチ座標・修飾キー・インチに換算した許容幅に直して interaction へ渡す
     let ppi = xf.ppi as f64;
-    let snap_tol = SNAP_PX as f64 / ppi;
-    let grid = view.grid_mm as f64 / MM_PER_INCH;
     let shift = ui.input(|i| i.modifiers.shift);
     let alt = ui.input(|i| i.modifiers.alt);
     let space = ui.input(|i| i.key_down(egui::Key::Space));
@@ -81,234 +80,81 @@ pub fn show(
         [i] => Some(*i),
         _ => None,
     };
-
-    // 掴む場所の判定
+    let env = Env {
+        frame: &frame,
+        mods: Mods { shift, alt },
+        snap: SnapCfg {
+            grid: view.grid_mm as f64 / MM_PER_INCH,
+            grid_on: view.snap_grid,
+            objects_on: view.snap_objects,
+            tol: SNAP_PX as f64 / ppi,
+        },
+        hit_tol: 3.0 / ppi,
+        handle_tol: (HANDLE + 6.0) as f64 / 2.0 / ppi,
+    };
     let pointer = resp.interact_pointer_pos().or(hover);
-    let handle_under = |doc: &Document, p: Pos2| -> Option<(usize, Handle)> {
-        let i = single_sel?;
-        let r = xf.rect(doc.template.objects[i].normalized());
-        Handle::ALL
-            .into_iter()
-            .find(|h| Rect::from_center_size(h.pos(r), Vec2::splat(HANDLE + 6.0)).contains(p))
-            .map(|h| (i, h))
-    };
-    let hit = |doc: &Document, p: Pos2| -> Option<usize> {
-        let (x, y) = xf.inch(p);
-        let tol = 3.0 / ppi;
-        doc.template
-            .objects
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(i, o)| {
-                let n = o.normalized();
-                (x >= n[0] - tol && x <= n[2] + tol && y >= n[1] - tol && y <= n[3] + tol)
-                    .then_some(i)
-            })
-    };
 
     if let Some(p) = hover
         && st.drag.is_none()
     {
         if *tool != Tool::Select {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-        } else if let Some((_, h)) = handle_under(doc, p) {
-            ui.ctx().set_cursor_icon(h.cursor());
-        } else if let Some(i) = hit(doc, p) {
-            ui.ctx().set_cursor_icon(if doc.editable(i) {
-                egui::CursorIcon::Move
-            } else {
-                egui::CursorIcon::NotAllowed
-            });
-            let r = xf.rect(doc.template.objects[i].normalized());
-            clip.rect_stroke(
-                r.expand(1.5),
-                2.0,
-                Stroke::new(1.0, ACCENT.gamma_multiply(0.5)),
-                StrokeKind::Outside,
-            );
+        } else {
+            match interaction::locate(doc, xf.inch(p), &env) {
+                Target::Handle(_, h) => ui.ctx().set_cursor_icon(h.cursor()),
+                Target::Object(i) => {
+                    ui.ctx().set_cursor_icon(if doc.editable(i) {
+                        egui::CursorIcon::Move
+                    } else {
+                        egui::CursorIcon::NotAllowed
+                    });
+                    let r = xf.rect(doc.template.objects[i].normalized());
+                    clip.rect_stroke(
+                        r.expand(1.5),
+                        2.0,
+                        Stroke::new(1.0, ACCENT.gamma_multiply(0.5)),
+                        StrokeKind::Outside,
+                    );
+                }
+                Target::Empty => {}
+            }
         }
     }
 
     if resp.drag_started_by(egui::PointerButton::Middle) || (resp.drag_started() && space) {
         if let Some(p) = pointer {
-            st.drag = Some(Drag::Pan { last: p });
+            st.drag = Some(Drag::Pan { last: (p.x, p.y) });
         }
     } else if resp.drag_started_by(egui::PointerButton::Primary)
         && let Some(p) = resp.interact_pointer_pos()
     {
         let p0 = p - resp.drag_delta();
-        if *tool != Tool::Select {
-            let s = snap_point(xf.inch(p0), grid, view.snap_grid);
-            st.drag = Some(Drag::Place {
-                tool: *tool,
-                start: s,
-            });
-        } else if let Some((idx, handle)) = handle_under(doc, p0) {
-            doc.checkpoint(None);
-            st.drag = Some(Drag::Resize {
-                idx,
-                handle,
-                orig: doc.template.objects[idx].normalized(),
-            });
-        } else if let Some(i) = hit(doc, p0) {
-            if !doc.selection.contains(&i) {
-                if !shift {
-                    doc.selection.clear();
-                }
-                doc.selection.insert(i);
-            }
-            let origin: Vec<(usize, [f64; 4])> = doc
-                .selected_editable()
-                .into_iter()
-                .map(|k| (k, doc.template.objects[k].rect))
-                .collect();
-            if origin.is_empty() {
-                st.status = Some(
-                    "この部品は本体の形式のまま保持しています（移動・変更はできません）".into(),
-                );
-            } else {
-                doc.checkpoint(None);
-                if alt {
-                    // Alt を押しながらドラッグで複製
-                    let copies: Vec<Object> = origin
-                        .iter()
-                        .map(|(k, _)| doc.template.objects[*k].clone())
-                        .collect();
-                    let start = doc.template.objects.len();
-                    doc.template.objects.extend(copies);
-                    doc.selection = (start..doc.template.objects.len()).collect();
-                    let origin = doc
-                        .selection
-                        .iter()
-                        .map(|&k| (k, doc.template.objects[k].rect))
-                        .collect();
-                    st.drag = Some(Drag::Move {
-                        start: xf.inch(p0),
-                        origin,
-                        moved: false,
-                    });
-                } else {
-                    st.drag = Some(Drag::Move {
-                        start: xf.inch(p0),
-                        origin,
-                        moved: false,
-                    });
-                }
-            }
-        } else {
-            if !shift {
-                doc.selection.clear();
-            }
-            st.drag = Some(Drag::Marquee {
-                start: p0,
-                additive: shift,
-            });
+        let out = interaction::press(doc, *tool, xf.inch(p0), &env);
+        if let Some(d) = out.drag {
+            st.drag = Some(d);
+        }
+        if out.status.is_some() {
+            st.status = out.status;
         }
     }
 
     st.guides_x.clear();
     st.guides_y.clear();
     if let Some(p) = pointer {
-        match &mut st.drag {
-            Some(Drag::Pan { last }) => {
-                view.pan += p - *last;
-                *last = p;
+        if let Some(d) = st.drag.as_mut() {
+            let fx = interaction::drag(doc, d, (p.x, p.y), xf.inch(p), &env);
+            st.guides_x = fx.guides_x;
+            st.guides_y = fx.guides_y;
+            if fx.status.is_some() {
+                st.status = fx.status;
             }
-            Some(Drag::Move {
-                start,
-                origin,
-                moved,
-            }) => {
-                let (x, y) = xf.inch(p);
-                let (mut dx, mut dy) = (x - start.0, y - start.1);
-                if shift {
-                    // Shift で縦横どちらかに固定
-                    if dx.abs() > dy.abs() {
-                        dy = 0.0;
-                    } else {
-                        dx = 0.0;
-                    }
-                }
-                let moving: Vec<usize> = origin.iter().map(|(k, _)| *k).collect();
-                let b = bounds_of(origin.iter().map(|(_, r)| norm(*r)));
-                let moved_b = [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy];
-                let (cx, cy) = candidates(doc, &frame, &moving, view.snap_objects);
-                let (sx, gx) = best_snap(
-                    &[moved_b[0], (moved_b[0] + moved_b[2]) / 2.0, moved_b[2]],
-                    &cx,
-                    snap_tol,
-                );
-                let (sy, gy) = best_snap(
-                    &[moved_b[1], (moved_b[1] + moved_b[3]) / 2.0, moved_b[3]],
-                    &cy,
-                    snap_tol,
-                );
-                if let Some(g) = gx {
-                    dx += sx;
-                    st.guides_x.push(g);
-                } else if view.snap_grid {
-                    dx += snap(moved_b[0], grid) - moved_b[0];
-                }
-                if let Some(g) = gy {
-                    dy += sy;
-                    st.guides_y.push(g);
-                } else if view.snap_grid {
-                    dy += snap(moved_b[1], grid) - moved_b[1];
-                }
-                if dx.abs() > 1e-9 || dy.abs() > 1e-9 {
-                    *moved = true;
-                }
-                for (k, r) in origin.iter() {
-                    doc.template.objects[*k].rect = [r[0] + dx, r[1] + dy, r[2] + dx, r[3] + dy];
-                }
-                st.status = Some(format!(
-                    "移動 {:+.1} mm, {:+.1} mm",
-                    dx * MM_PER_INCH,
-                    dy * MM_PER_INCH
-                ));
+            if let Some((dx, dy)) = fx.pan {
+                view.pan += vec2(dx, dy);
             }
-            Some(Drag::Resize { idx, handle, orig }) => {
-                let (mut x, mut y) = xf.inch(p);
-                let (ml, mt, mr, mb) = handle.moves();
-                let (cx, cy) = candidates(doc, &frame, &[*idx], view.snap_objects);
-                let (sx, gx) = best_snap(&[x], &cx, snap_tol);
-                let (sy, gy) = best_snap(&[y], &cy, snap_tol);
-                if let Some(g) = gx {
-                    x += sx;
-                    st.guides_x.push(g);
-                } else if view.snap_grid {
-                    x = snap(x, grid);
-                }
-                if let Some(g) = gy {
-                    y += sy;
-                    st.guides_y.push(g);
-                } else if view.snap_grid {
-                    y = snap(y, grid);
-                }
-                let min = 1.0 / MM_PER_INCH;
-                let mut r = *orig;
-                if ml {
-                    r[0] = x.min(r[2] - min);
-                }
-                if mr {
-                    r[2] = x.max(r[0] + min);
-                }
-                if mt {
-                    r[1] = y.min(r[3] - min);
-                }
-                if mb {
-                    r[3] = y.max(r[1] + min);
-                }
-                doc.template.objects[*idx].rect = r;
-                st.status = Some(format!(
-                    "幅 {:.1} mm × 高さ {:.1} mm",
-                    (r[2] - r[0]) * MM_PER_INCH,
-                    (r[3] - r[1]) * MM_PER_INCH
-                ));
-            }
-            Some(Drag::Marquee { start, .. }) => {
-                let r = Rect::from_two_pos(*start, p);
+        }
+        match &st.drag {
+            Some(Drag::Marquee { start }) => {
+                let r = Rect::from_two_pos(xf.pt(start.0, start.1), p);
                 clip.rect(
                     r,
                     0.0,
@@ -318,7 +164,7 @@ pub fn show(
                 );
             }
             Some(Drag::Place { tool: t, start }) => {
-                let e = snap_point(xf.inch(p), grid, view.snap_grid);
+                let e = interaction::place_point(xf.inch(p), &env);
                 let r = xf.rect([start.0, start.1, e.0, e.1]);
                 clip.rect(
                     r,
@@ -340,34 +186,15 @@ pub fn show(
                     ACCENT,
                 );
             }
-            None => {}
+            _ => {}
         }
     }
 
     if resp.drag_stopped() {
         match st.drag.take() {
-            Some(Drag::Marquee { start, additive }) => {
-                if let Some(p) = pointer {
-                    let sel = Rect::from_two_pos(start, p);
-                    let (a, b) = (xf.inch(sel.min), xf.inch(sel.max));
-                    for (i, o) in doc.template.objects.iter().enumerate() {
-                        let n = o.normalized();
-                        if n[0] >= a.0 && n[2] <= b.0 && n[1] >= a.1 && n[3] <= b.1 {
-                            doc.selection.insert(i);
-                        }
-                    }
-                    let _ = additive;
-                }
-            }
-            Some(Drag::Place { tool: t, start }) => {
-                if let Some(p) = pointer {
-                    let e = snap_point(xf.inch(p), grid, view.snap_grid);
-                    place(doc, t, start, e);
-                    *tool = Tool::Select;
-                }
-            }
-            Some(Drag::Move { moved: false, .. }) => doc.end_coalesce(),
-            _ => doc.end_coalesce(),
+            Some(d) => interaction::release(doc, d, pointer.map(|p| xf.inch(p)), tool, &env),
+            // 押しただけで何も始まらなかったときも、まとめた「元に戻す」は区切る
+            None => doc.end_coalesce(),
         }
         st.status = None;
     }
@@ -375,29 +202,12 @@ pub fn show(
     if resp.clicked()
         && let Some(p) = resp.interact_pointer_pos()
     {
-        if *tool != Tool::Select {
-            let s = snap_point(xf.inch(p), grid, view.snap_grid);
-            let (w, h) = default_size(*tool);
-            place(doc, *tool, s, (s.0 + w, s.1 + h));
-            *tool = Tool::Select;
-        } else if let Some(i) = hit(doc, p) {
-            if shift {
-                if !doc.selection.remove(&i) {
-                    doc.selection.insert(i);
-                }
-            } else {
-                doc.selection = [i].into();
-            }
-        } else if !shift {
-            doc.selection.clear();
-        }
+        interaction::click(doc, tool, xf.inch(p), &env);
     }
     if resp.double_clicked()
         && let Some(p) = resp.interact_pointer_pos()
-        && let Some(i) = hit(doc, p)
-        && matches!(doc.template.objects[i].body, Body::Caption(_))
+        && interaction::double_click(doc, xf.inch(p), &env)
     {
-        doc.selection = [i].into();
         st.focus_text = true;
     }
 
@@ -471,10 +281,8 @@ pub fn show(
     let mut action = CanvasAction::None;
     if resp.secondary_clicked()
         && let Some(p) = resp.interact_pointer_pos()
-        && let Some(i) = hit(doc, p)
-        && !doc.selection.contains(&i)
     {
-        doc.selection = [i].into();
+        interaction::secondary_click(doc, xf.inch(p), &env);
     }
     resp.context_menu(|ui| {
         let any = !doc.selected_editable().is_empty();

@@ -25,18 +25,29 @@ impl Handle {
         Handle::SW,
         Handle::W,
     ];
+    /// ハンドルの位置。矩形は `[left, top, right, bottom]`（単位は問わない）
+    pub(super) fn at(self, r: [f64; 4]) -> (f64, f64) {
+        let [l, t, ri, b] = r;
+        let (cx, cy) = ((l + ri) / 2.0, (t + b) / 2.0);
+        match self {
+            Handle::NW => (l, t),
+            Handle::N => (cx, t),
+            Handle::NE => (ri, t),
+            Handle::E => (ri, cy),
+            Handle::SE => (ri, b),
+            Handle::S => (cx, b),
+            Handle::SW => (l, b),
+            Handle::W => (l, cy),
+        }
+    }
     pub(super) fn pos(self, r: Rect) -> Pos2 {
-        let (x, y) = match self {
-            Handle::NW => (r.left(), r.top()),
-            Handle::N => (r.center().x, r.top()),
-            Handle::NE => (r.right(), r.top()),
-            Handle::E => (r.right(), r.center().y),
-            Handle::SE => (r.right(), r.bottom()),
-            Handle::S => (r.center().x, r.bottom()),
-            Handle::SW => (r.left(), r.bottom()),
-            Handle::W => (r.left(), r.center().y),
-        };
-        pos2(x, y)
+        let (x, y) = self.at([
+            r.left() as f64,
+            r.top() as f64,
+            r.right() as f64,
+            r.bottom() as f64,
+        ]);
+        pos2(x as f32, y as f32)
     }
     pub(super) fn moves(self) -> (bool, bool, bool, bool) {
         // left, top, right, bottom
@@ -79,4 +90,22 @@ pub(super) fn bounds_of(it: impl Iterator<Item = [f64; 4]>) -> [f64; 4] {
             a[3].max(b[3]),
         ]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handle_at_matches_the_rect_based_position() {
+        let r = [10.0, 20.0, 30.0, 60.0];
+        let rect = Rect::from_min_max(pos2(10.0, 20.0), pos2(30.0, 60.0));
+        for h in Handle::ALL {
+            let (x, y) = h.at(r);
+            assert_eq!(h.pos(rect), pos2(x as f32, y as f32), "{h:?}");
+        }
+        assert_eq!(Handle::N.at(r), (20.0, 20.0));
+        assert_eq!(Handle::SE.at(r), (30.0, 60.0));
+        assert_eq!(Handle::W.at(r), (10.0, 40.0));
+    }
 }
