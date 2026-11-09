@@ -21,11 +21,8 @@ impl StudioApp {
                 if ui
                     .button("エクスポートしたフォルダ（TMPEXP）を開く…")
                     .clicked()
-                    && let Some(p) = rfd::FileDialog::new()
-                        .set_title("TMPEXP フォルダを選んでください")
-                        .pick_folder()
                 {
-                    self.open_library(p);
+                    self.open_library_dialog(Some("TMPEXP フォルダを選んでください"));
                 }
                 ui.separator();
                 if ui

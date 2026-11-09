@@ -1,6 +1,7 @@
 //! ファイル操作：開く・保存・書き出しと、ダイアログを使う操作。
 
 use super::*;
+use std::path::Path;
 
 impl StudioApp {
     pub(super) fn open_file(&mut self, path: PathBuf) {
@@ -69,73 +70,93 @@ impl StudioApp {
     }
 
     pub(super) fn save_as_dialog(&mut self, ctx: &egui::Context) {
-        let mut dlg = rfd::FileDialog::new()
-            .add_filter("カードテンプレート", &["TPL", "tpl"])
-            .set_file_name(format!("{}.TPL", self.doc.name));
-        if let Some(lib) = &self.library {
-            dlg = dlg.set_directory(lib.root.join(self.doc.template.header.folder_name()));
-        }
-        if let Some(p) = dlg.save_file() {
+        let dir = self
+            .library
+            .as_ref()
+            .map(|lib| lib.root.join(self.doc.template.header.folder_name()));
+        let file_name = format!("{}.TPL", self.doc.name);
+        if let Some(p) = self.dialogs.save_template(dir.as_deref(), &file_name) {
             self.save_to(p, ctx);
         }
     }
 
     pub(super) fn export_dialog(&mut self, ctx: &egui::Context, all: bool) {
-        let Some(dest) = rfd::FileDialog::new()
-            .set_title("書き出し先のフォルダを選んでください（中に TMPEXP フォルダを作ります）")
-            .pick_folder()
-        else {
+        let Some(dest) = self.dialogs.pick_folder(Some(
+            "書き出し先のフォルダを選んでください（中に TMPEXP フォルダを作ります）",
+        )) else {
             return;
         };
-        let mut items: Vec<(String, Template)> = Vec::new();
-        if all && let Some(lib) = &self.library {
-            for e in &lib.entries {
-                if self.doc.path.as_deref() == Some(e.path.as_path()) {
-                    items.push((self.doc.name.clone(), self.doc.template.clone()));
-                    continue;
-                }
-                match std::fs::read(&e.path)
-                    .map_err(|x| x.to_string())
-                    .and_then(|d| Template::parse(&d).map_err(|x| x.to_string()))
-                {
-                    Ok(t) => items.push((e.name.clone(), t)),
-                    Err(err) => {
-                        self.error(
-                            "書き出せません",
-                            format!("{} を読めません: {err}", e.path.display()),
-                        );
-                        return;
-                    }
-                }
+        let items = match export_items(&self.doc, self.library.as_ref(), all) {
+            Ok(items) => items,
+            Err(e) => {
+                self.error("書き出せません", e);
+                return;
             }
-        } else {
-            items.push((self.doc.name.clone(), self.doc.template.clone()));
-        }
-        let mut result = doc::export_templates(&dest, &items, false);
-        if let Err(e) = &result
-            && e.contains("同名")
-            && rfd::MessageDialog::new()
-                .set_title("同名のテンプレート")
-                .set_description(format!("{e}\n上書きしてもよろしいですか？"))
-                .set_buttons(rfd::MessageButtons::YesNo)
-                .show()
-                == rfd::MessageDialogResult::Yes
-        {
-            result = doc::export_templates(&dest, &items, true);
-        }
-        match result {
+        };
+        match export_with_confirm(&dest, &items, self.dialogs.as_ref()) {
             Ok(files) => self.toast(format!("テンプレートのエクスポートは正常に終了しました（{} 件）。本体の「テンプレートのインポート」で TMPEXP フォルダを選んでください。", files.len()), ctx),
             Err(e) => self.error("書き出せません", e),
         }
     }
 
     pub(super) fn open_dialog(&mut self) {
-        let mut dlg = rfd::FileDialog::new().add_filter("カードテンプレート", &["TPL", "tpl"]);
-        if let Some(lib) = &self.library {
-            dlg = dlg.set_directory(&lib.root);
-        }
-        if let Some(p) = dlg.pick_file() {
+        let dir = self.library.as_ref().map(|lib| lib.root.clone());
+        if let Some(p) = self.dialogs.open_template(dir.as_deref()) {
             self.guard(Pending::Open(p));
         }
     }
+
+    /// フォルダを選んで、本体のエクスポート（TMPEXP）として開く
+    pub(super) fn open_library_dialog(&mut self, title: Option<&str>) {
+        if let Some(p) = self.dialogs.pick_folder(title) {
+            self.open_library(p);
+        }
+    }
+}
+
+/// 書き出す項目（名前とテンプレート）を集める。まとめて書き出すときは一覧のファイルを読む。
+/// 開いているテンプレートは、保存前の編集中の内容を使う。
+pub(super) fn export_items(
+    doc: &Document,
+    library: Option<&Library>,
+    all: bool,
+) -> Result<Vec<(String, Template)>, String> {
+    let mut items: Vec<(String, Template)> = Vec::new();
+    if all && let Some(lib) = library {
+        for e in &lib.entries {
+            if doc.path.as_deref() == Some(e.path.as_path()) {
+                items.push((doc.name.clone(), doc.template.clone()));
+                continue;
+            }
+            match std::fs::read(&e.path)
+                .map_err(|x| x.to_string())
+                .and_then(|d| Template::parse(&d).map_err(|x| x.to_string()))
+            {
+                Ok(t) => items.push((e.name.clone(), t)),
+                Err(err) => return Err(format!("{} を読めません: {err}", e.path.display())),
+            }
+        }
+    } else {
+        items.push((doc.name.clone(), doc.template.clone()));
+    }
+    Ok(items)
+}
+
+/// まず上書きなしで書き、同名があれば確認して、承諾されたら上書きで書き直す
+pub(super) fn export_with_confirm(
+    dest: &Path,
+    items: &[(String, Template)],
+    dialogs: &dyn Dialogs,
+) -> Result<Vec<PathBuf>, String> {
+    let mut result = doc::export_templates(dest, items, false);
+    if let Err(e) = &result
+        && e.contains("同名")
+        && dialogs.confirm(
+            "同名のテンプレート",
+            &format!("{e}\n上書きしてもよろしいですか？"),
+        )
+    {
+        result = doc::export_templates(dest, items, true);
+    }
+    result
 }
