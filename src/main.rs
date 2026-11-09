@@ -22,11 +22,16 @@ fn main() -> eframe::Result<()> {
         }
     }
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("カードテンプレート工房")
+        .with_inner_size([1440.0, 900.0])
+        .with_min_inner_size([960.0, 600.0]);
+    if let Some(icon) = load_app_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("カードテンプレート工房")
-            .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([960.0, 600.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -114,4 +119,21 @@ fn install_fonts(ctx: &egui::Context) {
             .insert(egui::FontFamily::Name(key.into()), list);
     }
     ctx.set_fonts(fonts);
+}
+
+/// アプリアイコンを読み込む
+fn load_app_icon() -> Option<egui::IconData> {
+    const ICON_BYTES: &[u8] = include_bytes!("../assets/icon.png");
+    match image::load_from_memory(ICON_BYTES) {
+        Ok(image) => {
+            let rgba = image.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            Some(egui::IconData {
+                rgba: rgba.into_raw(),
+                width,
+                height,
+            })
+        }
+        Err(_) => None,
+    }
 }
