@@ -208,4 +208,94 @@ mod tests {
         let f = card_frame(&t);
         assert!(f.width >= 20.0 && f.height >= 9.0);
     }
+
+    fn header(cols: u16, rows: u16, portrait: bool) -> Header {
+        Header {
+            cols,
+            rows,
+            orientation: portrait as u32,
+            ..Header::default()
+        }
+    }
+
+    #[test]
+    fn measured_lookup_matches_layout_and_orientation() {
+        let cases = [
+            (1u16, 3u16, true, Some(56u32)),
+            (1, 3, false, None),
+            (2, 2, false, Some(4)),
+            (2, 2, true, None),
+            (9, 9, true, None),
+        ];
+        for (cols, rows, portrait, samples) in cases {
+            let m = measured(&header(cols, rows, portrait));
+            assert_eq!(m.map(|m| m.samples), samples, "{cols}x{rows} {portrait}");
+        }
+    }
+
+    #[test]
+    fn measured_frame_adds_the_margin_on_the_far_side() {
+        let t = Template::default();
+        let f = card_frame(&t);
+        let m = measured(&t.header).unwrap();
+        assert!((f.width - (m.max_right + m.min_left)).abs() < 1e-9);
+        assert!((f.height - (m.max_bottom + m.min_top)).abs() < 1e-9);
+        assert_eq!(
+            f.used,
+            Some([m.min_left, m.min_top, m.max_right, m.max_bottom])
+        );
+        assert!(!f.estimated);
+    }
+
+    #[test]
+    fn a4_division_splits_the_sheet() {
+        let (w, h) = a4_division(&header(2, 3, true));
+        assert!((w - A4_SHORT_INCH / 2.0).abs() < 1e-9);
+        assert!((h - A4_LONG_INCH / 3.0).abs() < 1e-9);
+        let (w, h) = a4_division(&header(2, 3, false));
+        assert!((w - A4_LONG_INCH / 2.0).abs() < 1e-9);
+        assert!((h - A4_SHORT_INCH / 3.0).abs() < 1e-9);
+        // 0 分割でも 0 除算にならない
+        let (w, h) = a4_division(&header(0, 0, true));
+        assert!(w.is_finite() && h.is_finite());
+    }
+
+    #[test]
+    fn estimated_frame_has_no_used_range() {
+        let f = card_frame(&Template {
+            header: header(3, 4, true),
+            ..Template::default()
+        });
+        assert!(f.estimated && f.used.is_none());
+    }
+
+    #[test]
+    fn frame_normalizes_reversed_rects() {
+        let mut t = Template::default();
+        t.objects.push(Object::new(
+            Body::Caption(CaptionBody::new("a", "", false, 12)),
+            [30.0, 25.0, 0.0, 0.0],
+        ));
+        let f = card_frame(&t);
+        assert!(f.width >= 30.0 && f.height >= 25.0);
+    }
+
+    #[test]
+    fn presets_are_unique_and_labelled() {
+        let set: std::collections::BTreeSet<_> = PRESETS.iter().collect();
+        assert_eq!(set.len(), PRESETS.len());
+        assert_eq!(layout_label(1, 3, true), "横1×縦3（縦向き）");
+        assert_eq!(layout_label(2, 1, false), "横2×縦1（横向き）");
+        for &(c, r, p) in PRESETS {
+            assert!(c >= 1 && r >= 1, "{c}x{r} {p}");
+        }
+    }
+
+    #[test]
+    fn measured_values_are_sane() {
+        for m in MEASURED {
+            assert!(m.min_left < m.max_right && m.min_top < m.max_bottom);
+            assert!(m.samples > 0);
+        }
+    }
 }

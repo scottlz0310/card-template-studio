@@ -577,3 +577,362 @@ fn multi_caption_props(ui: &mut egui::Ui, doc: &mut Document) {
         font_props(ui, doc, &sel);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tpl::{CaptionBody, CmValueBody, Object, PictureBody, Template, default_format};
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    struct State {
+        doc: Document,
+        focus_text: bool,
+    }
+
+    fn caption(text: &str, field: &str, is_value: bool, x: f64) -> Object {
+        Object::new(
+            Body::Caption(CaptionBody::new(text, field, is_value, 12)),
+            [x, 0.5, x + 1.0, 0.8],
+        )
+    }
+
+    fn picture(x: f64) -> Object {
+        Object::new(
+            Body::Picture(PictureBody::default()),
+            [x, 1.0, x + 1.0, 2.0],
+        )
+    }
+
+    fn locked() -> Object {
+        Object {
+            tag_version: 3,
+            kind: tpl::KIND_RECT,
+            link: 0,
+            rect: [0.0, 0.0, 1.0, 1.0],
+            body: Body::Passthrough(vec![0; 81]),
+            trailer: Some(0),
+        }
+    }
+
+    fn cm_value() -> Object {
+        let body = CmValueBody {
+            text: SjisString::default(),
+            c0: 0,
+            c4: 0,
+            x138: 0,
+            x13c: 0,
+            x148: 0,
+            face: tpl::string_to_fixed("ＭＳ Ｐゴシック"),
+            fmt: default_format(12),
+            x140: 0,
+            x154: 0,
+            x150: 0,
+            x14c: 0,
+            x144: 0,
+            ext: None,
+        };
+        Object::new(Body::CmValue(body), [0.0, 3.0, 2.0, 3.5])
+    }
+
+    fn harness(objects: Vec<Object>, selection: &[usize]) -> Harness<'static, State> {
+        let mut doc = Document::new(
+            Template {
+                objects,
+                ..Template::default()
+            },
+            "t",
+            None,
+        );
+        doc.selection = selection.iter().copied().collect();
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(360.0, 900.0))
+            .allow_missing_glyphs()
+            .with_accessibility_check(false)
+            .build_ui_state(
+                |ui, s: &mut State| show(ui, &mut s.doc, &mut s.focus_text),
+                State {
+                    doc,
+                    focus_text: false,
+                },
+            );
+        h.run();
+        h
+    }
+
+    fn caption_body(h: &Harness<'_, State>, i: usize) -> CaptionBody {
+        match &h.state().doc.template.objects[i].body {
+            Body::Caption(c) => c.clone(),
+            other => panic!("文字項目ではありません: {other:?}"),
+        }
+    }
+
+    fn fmt_of(h: &Harness<'_, State>, i: usize) -> [u8; tpl::FMT_LEN] {
+        caption_body(h, i).fmt
+    }
+
+    #[test]
+    fn card_props_show_layout_and_file_info() {
+        let h = harness(vec![locked(), picture(0.1)], &[]);
+        h.get_by_label("カード全体");
+        h.get_by_label_contains("保存先フォルダ名: TEMP1x3_V");
+        h.get_by_label_contains("既存テンプレートの実測から");
+        h.get_by_label_contains("1 個の図形・部品は本体の形式のまま");
+    }
+
+    #[test]
+    fn card_props_for_unmeasured_layout_say_estimated() {
+        let mut h = harness(vec![], &[]);
+        h.state_mut().doc.template.header.cols = 3;
+        h.state_mut().doc.template.header.rows = 4;
+        h.run();
+        h.get_by_label_contains("推定: A4÷分割数");
+    }
+
+    #[test]
+    fn card_layout_can_be_changed_from_presets() {
+        let mut h = harness(vec![], &[]);
+        h.get_by_role(egui::accesskit::Role::ComboBox).click();
+        h.run();
+        h.get_by_label("横1×縦2（縦向き）").click();
+        h.run();
+        let header = &h.state().doc.template.header;
+        assert_eq!(
+            (header.cols, header.rows, header.is_portrait()),
+            (1, 2, true)
+        );
+        assert!(h.state().doc.dirty);
+        h.get_by_label_contains("保存先フォルダ名: TEMP1x2_V");
+    }
+
+    #[test]
+    fn selection_kind_decides_which_panel_is_shown() {
+        let cases: Vec<(Vec<Object>, &str)> = vec![
+            (vec![picture(0.1)], "カード内の 1 枚目の写真です"),
+            (vec![cm_value()], "施工管理値の表です"),
+            (
+                vec![locked()],
+                "この図形・部品は、本体で作られたままのバイト列を保持",
+            ),
+            (
+                vec![caption("見出し", "写真タイトル", false, 0.1)],
+                "表示する文字",
+            ),
+            (vec![caption("", "写真タイトル", true, 0.1)], "表示する項目"),
+        ];
+        for (objects, expected) in cases {
+            let h = harness(objects, &[0]);
+            h.get_by_label_contains(expected);
+        }
+    }
+
+    #[test]
+    fn locked_object_shows_only_the_notice() {
+        let h = harness(vec![locked()], &[0]);
+        h.get_by_label_contains("保持のみ");
+        assert!(
+            h.query_by_label_contains("項目値（データを表示）")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn picture_number_counts_from_first_picture() {
+        let h = harness(vec![picture(0.1), picture(2.0)], &[1]);
+        h.get_by_label_contains("カード内の 2 枚目の写真です");
+    }
+
+    #[test]
+    fn role_switch_is_one_undo_step() {
+        let mut h = harness(vec![caption("見出し", "写真タイトル", false, 0.1)], &[0]);
+        h.get_by_label("項目値（データを表示）").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).is_value, 1);
+        h.state_mut().doc.undo();
+        assert_eq!(caption_body(&h, 0).is_value, 0);
+    }
+
+    #[test]
+    fn empty_label_can_take_field_name() {
+        let mut h = harness(vec![caption("", "工種", false, 0.1)], &[0]);
+        h.get_by_label("項目名を表示する文字にする").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).text.to_string_lossy(), "工種");
+        assert!(h.query_by_label("項目名を表示する文字にする").is_none());
+    }
+
+    #[test]
+    fn link_selector_appears_only_with_two_pictures() {
+        let cases = [(1usize, false), (2, true)];
+        for (pictures, shown) in cases {
+            let mut objects: Vec<Object> = (0..pictures).map(|k| picture(k as f64 * 2.0)).collect();
+            objects.push(caption("a", "", false, 0.1));
+            let sel = objects.len() - 1;
+            let h = harness(objects, &[sel]);
+            assert_eq!(
+                h.query_by_label_contains("どの写真の情報か").is_some(),
+                shown,
+                "{pictures} 枚"
+            );
+        }
+    }
+
+    #[test]
+    fn border_toggle_and_width_edit_caption() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        h.get_by_label("0.7 mm").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border_style, Some((0, 2)));
+        h.get_by_label("枠線を引く").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border, 0);
+        assert!(h.query_by_label("0.7 mm").is_none());
+    }
+
+    #[test]
+    fn legacy_caption_has_no_border_style_controls() {
+        let mut c = CaptionBody::new("a", "", false, 12);
+        c.border_style = None;
+        let h = harness(
+            vec![Object::new(Body::Caption(c), [0.1, 0.5, 1.1, 0.8])],
+            &[0],
+        );
+        h.get_by_label_contains("古い形式のため枠線の色・太さは保存されません");
+    }
+
+    #[test]
+    fn font_toggles_change_only_their_own_byte() {
+        let cases: Vec<(&str, usize, u8)> = vec![
+            (" I ", fmt_off::ITALIC, 1),
+            (" U ", fmt_off::UNDERLINE, 1),
+            (" S ", fmt_off::STRIKE, 1),
+        ];
+        for (label, off, expected) in cases {
+            let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+            let before = fmt_of(&h, 0);
+            h.get_by_label(label).click();
+            h.run();
+            let after = fmt_of(&h, 0);
+            assert_eq!(after[off], expected, "{label}");
+            for k in (0..tpl::FMT_LEN).filter(|&k| k != off) {
+                assert_eq!(after[k], before[k], "{label}: byte {k:#x}");
+            }
+        }
+    }
+
+    #[test]
+    fn bold_vertical_wrap_and_alignment() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        h.get_by_label(" B ").click();
+        h.run();
+        assert_eq!(tpl::read_fmt(&fmt_of(&h, 0), fmt_off::WEIGHT), 700);
+        h.get_by_label(" B ").click();
+        h.run();
+        assert_eq!(tpl::read_fmt(&fmt_of(&h, 0), fmt_off::WEIGHT), 400);
+        h.get_by_label("縦書き").click();
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::HORIZONTAL], 0);
+        h.get_by_label("中央").click();
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::ALIGN], 1);
+        // 既定値は自動折り返しあり
+        assert_eq!(fmt_of(&h, 0)[fmt_off::WRAP], 1);
+        h.get_by_label("自動折り返し").click();
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::WRAP], 0);
+    }
+
+    #[test]
+    fn background_checkbox_sets_fill_flag() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        assert_eq!(fmt_of(&h, 0)[fmt_off::FILL], 0);
+        h.get_by_label("背景色").click();
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::FILL], 1);
+    }
+
+    #[test]
+    fn font_face_can_be_switched() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        // 文字項目の欄の ComboBox は 項目 → 書体 の順
+        h.get_all_by_role(egui::accesskit::Role::ComboBox)
+            .nth(1)
+            .expect("書体の ComboBox")
+            .click();
+        h.run();
+        h.get_by_label("ＭＳ 明朝").click();
+        h.run();
+        assert_eq!(tpl::fixed_to_string(&caption_body(&h, 0).face), "ＭＳ 明朝");
+    }
+
+    #[test]
+    fn multi_selection_applies_only_changed_fields_to_every_caption() {
+        let mut a = CaptionBody::new("a", "", false, 10);
+        let mut b = CaptionBody::new("b", "", false, 18);
+        // 画面で触れない未解明のバイトは、それぞれの値のまま残る
+        a.fmt[0x0c] = 0x11;
+        b.fmt[0x0c] = 0x22;
+        let mut h = harness(
+            vec![
+                Object::new(Body::Caption(a), [0.1, 0.5, 1.1, 0.8]),
+                Object::new(Body::Caption(b), [1.2, 0.5, 2.2, 0.8]),
+                picture(3.0),
+            ],
+            &[0, 1, 2],
+        );
+        h.get_by_label_contains("3 個を選択中");
+        h.get_by_label(" B ").click();
+        h.run();
+        for (i, size, unknown) in [(0usize, 10u16, 0x11u8), (1, 18, 0x22)] {
+            let f = fmt_of(&h, i);
+            assert_eq!(tpl::read_fmt(&f, fmt_off::WEIGHT), 700, "#{i}");
+            assert_eq!(tpl::read_fmt_u16(&f, fmt_off::SIZE), size, "#{i}");
+            assert_eq!(f[0x0c], unknown, "#{i}");
+        }
+    }
+
+    #[test]
+    fn multi_selection_without_captions_has_no_font_section() {
+        let h = harness(vec![picture(0.1), picture(2.0)], &[0, 1]);
+        h.get_by_label_contains("2 個を選択中");
+        assert!(h.query_by_label_contains("文字（まとめて変更）").is_none());
+    }
+
+    #[test]
+    fn geometry_edit_updates_rect() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        h.get_by_label_contains("幅").set_value_accesskit(40.0);
+        h.run();
+        let r = h.state().doc.template.objects[0].normalized();
+        assert!(((r[2] - r[0]) * MM_PER_INCH - 40.0).abs() < 0.2, "{r:?}");
+        assert!(h.state().doc.dirty);
+    }
+
+    #[test]
+    fn unmappable_text_is_replaced_with_character_reference() {
+        // cp932 に無い文字は SjisString にすると「?」になるので、画面にだけ警告を出す
+        let mut object = caption("a", "", false, 0.1);
+        if let Body::Caption(c) = &mut object.body {
+            c.text = SjisString(vec![]);
+        }
+        let mut h = harness(vec![object], &[0]);
+        assert!(h.query_by_label_contains("本体で扱えない文字").is_none());
+        h.get_by_role(egui::accesskit::Role::MultilineTextInput)
+            .focus();
+        h.get_by_role(egui::accesskit::Role::MultilineTextInput)
+            .type_text("😀");
+        h.run();
+        // 現状の挙動の固定: encoding_rs は表せない文字を数値文字参照に置き換えるため、
+        // 画面の説明（「?」になります）とは食い違い、置き換え後は警告も消える
+        assert_eq!(caption_body(&h, 0).text.to_string_lossy(), "&#128512;");
+        assert!(h.query_by_label_contains("本体で扱えない文字").is_none());
+    }
+
+    #[test]
+    fn focus_request_is_consumed_by_the_text_field() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        h.state_mut().focus_text = true;
+        h.run();
+        assert!(!h.state().focus_text);
+    }
+}
