@@ -9,6 +9,7 @@
 - 本体のエクスポート形式（TMPEXP\expinf, TEMP{横}x{縦}_{H|V}\名前.TPL）の一覧表示と書き出し。
 - 写真枠・項目名・項目値・項目の行の配置、移動・大きさ変更、吸着ガイド、整列、元に戻す。
 - 文字項目の書式（フォント・大きさ・太字・斜体・下線・取り消し線・縦書き・行揃え・行間・文字間・色・枠線）の編集。
+- 写真枠の形（四角 / 角丸 / 楕円）・枠線の太さ（なし / 細い / 中 / 太い）・枠線の色を、キャンバスに描き、プロパティパネルで編集できるようにした。実機の差分実験で確定した `b8`（+0xb8）と `bc`（+0xbc）を、`frame_style` と `border_color` に改名した（#25）。描く太さ（mm）と角丸の半径は、実機の見た目からの推定。
 - `--screenshot <file.png>` で画面を PNG に保存して終了する確認用の起動方法。
 - リポジトリ基盤・規約準拠の補完（`.review-raven/ci-policy.json`、`rust-toolchain.toml`、`LICENSE-MIT` / `LICENSE-APACHE`、`CONTRIBUTING.md`）。
 - アプリアイコン案（`assets/icon.png`, `icon.ico`）および `winres` による Windows リソース埋め込み。

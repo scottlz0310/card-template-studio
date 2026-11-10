@@ -721,3 +721,29 @@ fn rendering_covers_every_object_kind() {
     rig.view.show_used = false;
     rig.frame();
 }
+
+#[test]
+fn picture_frames_draw_every_shape_and_border() {
+    // 形 × 太さの全部を描いて、落ちないこと（色も変えて、描画の分岐を一通り通す）
+    let mut objects = Vec::new();
+    for (i, shape) in tpl::PictureShape::ALL.into_iter().enumerate() {
+        for (j, border) in tpl::PictureBorder::ALL.into_iter().enumerate() {
+            let mut o = pic([
+                0.1 + j as f64 * 1.2,
+                0.1 + i as f64 * 1.2,
+                1.1 + j as f64 * 1.2,
+                1.1 + i as f64 * 1.2,
+            ]);
+            let Body::Picture(p) = &mut o.body else {
+                unreachable!()
+            };
+            p.set_shape(shape);
+            p.set_border(border);
+            p.border_color = 0x0080ff;
+            objects.push(o);
+        }
+    }
+    let mut rig = Rig::new(objects);
+    rig.frame();
+    assert_eq!(rig.doc.template.objects.len(), 12);
+}

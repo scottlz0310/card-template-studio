@@ -77,8 +77,8 @@ pub(super) fn write_object(w: &mut Writer, o: &Object) {
 fn read_picture(r: &mut Reader, tag_version: u8) -> Result<PictureBody> {
     Ok(PictureBody {
         crop: r.array()?,
-        b8: r.u32()?,
-        bc: r.u32()?,
+        frame_style: r.u32()?,
+        border_color: r.u32()?,
         guid: r.cstring()?,
         c4: r.cstring()?,
         path: r.cstring()?,
@@ -101,8 +101,8 @@ fn read_picture(r: &mut Reader, tag_version: u8) -> Result<PictureBody> {
 
 fn write_picture(w: &mut Writer, p: &PictureBody) {
     w.bytes(&p.crop);
-    w.u32(p.b8);
-    w.u32(p.bc);
+    w.u32(p.frame_style);
+    w.u32(p.border_color);
     w.cstring(&p.guid);
     w.cstring(&p.c4);
     w.cstring(&p.path);

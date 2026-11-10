@@ -7,8 +7,11 @@ use super::text::{SjisString, string_to_fixed};
 #[derive(Clone, Debug, PartialEq)]
 pub struct PictureBody {
     pub crop: [u8; 32],
-    pub b8: u32,
-    pub bc: u32,
+    /// +0xb8: 下位 4 ビット = 枠の形（`PictureShape`）、bit 4〜7 = 枠線の太さ（`PictureBorder`）。
+    /// それより上のビットは見た目に効かないが、読んだまま保持する（実機の差分実験、#18 / #25）
+    pub frame_style: u32,
+    /// +0xbc: 枠線の色（COLORREF）。枠線の太さが 0 のときは使われない
+    pub border_color: u32,
     /// 写真の GUID（テンプレートでは空か "0"）
     pub guid: SjisString,
     pub c4: SjisString,
@@ -30,8 +33,8 @@ impl Default for PictureBody {
     fn default() -> Self {
         Self {
             crop: [0; 32],
-            b8: 0x11,
-            bc: 0xff,
+            frame_style: 0x11,
+            border_color: 0xff,
             guid: SjisString::default(),
             c4: SjisString::default(),
             path: SjisString::default(),
@@ -45,6 +48,95 @@ impl Default for PictureBody {
             e8: 3,
             ec: None,
         }
+    }
+}
+
+/// 写真枠の形（`frame_style` の下位 4 ビット）。範囲外（4〜15）は本体が四角で描く
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PictureShape {
+    Rect,
+    Rounded,
+    Ellipse,
+}
+
+impl PictureShape {
+    pub const ALL: [Self; 3] = [Self::Rect, Self::Rounded, Self::Ellipse];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rect => "四角",
+            Self::Rounded => "角丸",
+            Self::Ellipse => "楕円",
+        }
+    }
+
+    /// 書き込む値（`3` も楕円に見えるが、書き戻すのは `2`）
+    fn bits(self) -> u32 {
+        match self {
+            Self::Rect => 0,
+            Self::Rounded => 1,
+            Self::Ellipse => 2,
+        }
+    }
+}
+
+/// 写真枠の枠線の太さ（`frame_style` の bit 4〜7）。範囲外（4〜15）は枠線なし
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PictureBorder {
+    None,
+    Thin,
+    Medium,
+    Thick,
+}
+
+impl PictureBorder {
+    pub const ALL: [Self; 4] = [Self::None, Self::Thin, Self::Medium, Self::Thick];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "なし",
+            Self::Thin => "細い",
+            Self::Medium => "中",
+            Self::Thick => "太い",
+        }
+    }
+
+    fn bits(self) -> u32 {
+        match self {
+            Self::None => 0,
+            Self::Thin => 1,
+            Self::Medium => 2,
+            Self::Thick => 3,
+        }
+    }
+}
+
+impl PictureBody {
+    pub fn shape(&self) -> PictureShape {
+        match self.frame_style & 0xf {
+            1 => PictureShape::Rounded,
+            2 | 3 => PictureShape::Ellipse,
+            _ => PictureShape::Rect,
+        }
+    }
+
+    /// 形だけを変える（枠線の太さとそれより上のビットは保つ）
+    pub fn set_shape(&mut self, shape: PictureShape) {
+        self.frame_style = (self.frame_style & !0xf) | shape.bits();
+    }
+
+    pub fn border(&self) -> PictureBorder {
+        match (self.frame_style >> 4) & 0xf {
+            1 => PictureBorder::Thin,
+            2 => PictureBorder::Medium,
+            3 => PictureBorder::Thick,
+            _ => PictureBorder::None,
+        }
+    }
+
+    /// 枠線の太さだけを変える（形とそれより上のビットは保つ）
+    pub fn set_border(&mut self, border: PictureBorder) {
+        self.frame_style = (self.frame_style & !0xf0) | (border.bits() << 4);
     }
 }
 
