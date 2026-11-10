@@ -230,14 +230,15 @@ fn save_as_cancel_saves_nothing() {
 }
 
 #[test]
-fn ctrl_shift_s_does_not_reach_the_save_as_dialog() {
-    // 現状の挙動の固定: Ctrl+Shift+S は先に Ctrl+S として消費されるため、
-    // 「名前を付けて保存」のダイアログは開かず、上書き保存の流れになる
-    // （保存先が無ければ名前の入力画面）。メニューの表示（Ctrl+Shift+S）とは食い違う
+fn ctrl_shift_s_opens_the_save_as_dialog() {
+    // Ctrl+Shift+S は Ctrl+S（上書き保存）に先取りされず、「名前を付けて保存」のダイアログが開く
     let (mut h, fake) = harness(None);
     press(&mut h, Modifiers::COMMAND | Modifiers::SHIFT, Key::S);
-    assert!(fake.calls().is_empty());
-    assert!(matches!(app(&mut h).modal, Some(Modal::SaveAsName { .. })));
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Save(None, "新規テンプレート.TPL".into())]
+    );
+    assert!(app(&mut h).modal.is_none());
 }
 
 #[test]

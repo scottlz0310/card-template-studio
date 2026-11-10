@@ -504,11 +504,13 @@ fn undo_and_redo_shortcuts() {
     assert_eq!(app(&mut h).doc.template.objects.len(), 11);
     press(&mut h, Modifiers::COMMAND, Key::Y);
     assert!(app(&mut h).doc.template.objects.is_empty());
-    // 現状の挙動の固定: Ctrl+Shift+Z は先に Ctrl+Z として消費されるため、
-    // やり直しにならず元に戻す側が働く（履歴が尽きていれば何も起きない）
     press(&mut h, Modifiers::COMMAND, Key::Z);
     assert_eq!(app(&mut h).doc.template.objects.len(), 11);
+    // Ctrl+Shift+Z もやり直し（Ctrl+Z に先取りされない）
     press(&mut h, Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    assert!(app(&mut h).doc.template.objects.is_empty());
+    assert!(!app(&mut h).doc.can_redo());
+    press(&mut h, Modifiers::COMMAND, Key::Z);
     assert_eq!(app(&mut h).doc.template.objects.len(), 11);
     assert!(app(&mut h).doc.can_redo());
 }
