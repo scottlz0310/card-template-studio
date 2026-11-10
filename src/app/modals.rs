@@ -177,6 +177,12 @@ impl StudioApp {
                     ui.add_space(6.0);
                     let n = spec.fields.len();
                     let mut op: Option<(usize, i32)> = None;
+                    // 行が多くても、確定・取消のボタンが画面の外に出ないよう、一覧は高さを抑えてスクロールさせる
+                    let rows_height = (ctx.content_rect().height() - 340.0).clamp(80.0, 520.0);
+                    egui::ScrollArea::vertical()
+                        .max_height(rows_height)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
                     for i in 0..n {
                         ui.horizontal(|ui| {
                             let row = ui.label(format!("{} 行目", i + 1));
@@ -209,6 +215,7 @@ impl StudioApp {
                             }
                         });
                     }
+                        });
                     match op {
                         Some((i, 0)) => {
                             spec.fields.remove(i);

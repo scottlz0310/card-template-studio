@@ -935,3 +935,34 @@ fn insert_table_dialog_presets_cancel_and_row_limits() {
         "項目が 0 のときは置く操作を受け付けない"
     );
 }
+
+#[test]
+fn insert_table_buttons_stay_reachable_with_many_rows_at_the_minimum_window_size() {
+    // 最小のウィンドウ（960×600）で 20 行にしても、「置く場所を決める」「やめる」が画面の中に残る。
+    // 本番と同じ日本語フォントで測る（フォントの高さで、行の一覧の高さが変わるため）
+    let size = egui::vec2(960.0, 600.0);
+    let mut h = Harness::builder()
+        .with_size(size)
+        .allow_missing_glyphs()
+        .with_accessibility_check(true)
+        .with_max_steps(30)
+        .build_eframe(move |cc| {
+            crate::install_fonts(&cc.egui_ctx);
+            StudioApp::new(&cc.egui_ctx, None, None)
+        });
+    h.run();
+    app(&mut h).canvas.table.fields = (0..20).map(|_| "工種".to_string()).collect();
+    open_menu(&mut h, "編集", "表組の挿入…");
+    for name in ["置く場所を決める", "やめる"] {
+        let r = h.get_by_label(name).rect();
+        assert!(
+            r.min.y >= 0.0 && r.max.y <= size.y,
+            "{name} が画面の外にある: {r:?}"
+        );
+    }
+    // 一覧の下の方の行も、スクロールで操作できる（行が 20 のまま残っている）
+    match &app(&mut h).modal {
+        Some(Modal::InsertTable { spec }) => assert_eq!(spec.fields.len(), 20),
+        _ => panic!("表組の挿入が開いていない"),
+    }
+}
