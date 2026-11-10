@@ -17,7 +17,7 @@
 
 - 実物の TMPEXP の値の分布を集計する調査用テスト `survey_real_samples`（`#[ignore]`、`CARD_TPL_SAMPLES` 指定時に手動実行。#18）。
 - 集計テストに、文字項目の `is_value` と項目名・表示文字の関係の列、および `is_value` / `t108` が `-1` の部品を一覧する `list_odd_captions` を追加（#18）。
-- 実機の差分実験用に、実物から調べたい値だけを変えた TPL を生成する調査用テスト（`gen_picture_frame_*` / `gen_fmt_*` / `list_fmt_variants` / `fmt_12_13_*` / `dump_template` / `picture_combinations`）を追加（`#[ignore]`、手動実行。#18）。
+- 実機の差分実験用に、実物から調べたい値だけを変えた TPL を生成する調査用テスト（`gen_picture_frame_*` / `gen_fmt_*` / `gen_picture_photo_experiment` / `list_fmt_variants` / `fmt_12_13_*` / `dump_template` / `picture_combinations`）を追加（`#[ignore]`、手動実行。#18）。
 
 ### Changed
 
