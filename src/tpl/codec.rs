@@ -168,16 +168,16 @@ fn write_caption(w: &mut Writer, c: &CaptionBody) {
 fn read_cm_value(r: &mut Reader, tag_version: u8) -> Result<CmValueBody> {
     let text = r.cstring()?;
     let c0 = r.u32()?;
-    let c4 = r.u32()?;
-    let x138 = r.u32()?;
-    let x13c = r.u32()?;
-    let x148 = r.u32()?;
+    let count = r.u32()?;
+    let design_color = r.u32()?;
+    let actual_color = r.u32()?;
+    let border_color = r.u32()?;
     let face = r.array()?;
     let fmt = r.array()?;
-    let x140 = r.u32()?;
-    let x154 = r.u32()?;
-    let x150 = r.u32()?;
-    let x14c = r.u32()?;
+    let layout = r.u32()?;
+    let name_style = r.u32()?;
+    let has_border = r.u32()?;
+    let border_weight = r.u32()?;
     let x144 = r.u32()?;
     let ext = if tag_version > 1 {
         let a = r.u32()?;
@@ -197,16 +197,16 @@ fn read_cm_value(r: &mut Reader, tag_version: u8) -> Result<CmValueBody> {
     Ok(CmValueBody {
         text,
         c0,
-        c4,
-        x138,
-        x13c,
-        x148,
+        count,
+        design_color,
+        actual_color,
+        border_color,
         face,
         fmt,
-        x140,
-        x154,
-        x150,
-        x14c,
+        layout,
+        name_style,
+        has_border,
+        border_weight,
         x144,
         ext,
     })
@@ -214,12 +214,24 @@ fn read_cm_value(r: &mut Reader, tag_version: u8) -> Result<CmValueBody> {
 
 fn write_cm_value(w: &mut Writer, c: &CmValueBody) {
     w.cstring(&c.text);
-    for v in [c.c0, c.c4, c.x138, c.x13c, c.x148] {
+    for v in [
+        c.c0,
+        c.count,
+        c.design_color,
+        c.actual_color,
+        c.border_color,
+    ] {
         w.u32(v);
     }
     w.bytes(&c.face);
     w.bytes(&c.fmt);
-    for v in [c.x140, c.x154, c.x150, c.x14c, c.x144] {
+    for v in [
+        c.layout,
+        c.name_style,
+        c.has_border,
+        c.border_weight,
+        c.x144,
+    ] {
         w.u32(v);
     }
     if let Some((a, b, rows)) = &c.ext {

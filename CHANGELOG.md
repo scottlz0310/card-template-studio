@@ -18,9 +18,12 @@
 - 実物の TMPEXP の値の分布を集計する調査用テスト `survey_real_samples`（`#[ignore]`、`CARD_TPL_SAMPLES` 指定時に手動実行。#18）。
 - 集計テストに、文字項目の `is_value` と項目名・表示文字の関係の列、および `is_value` / `t108` が `-1` の部品を一覧する `list_odd_captions` を追加（#18）。
 - 実機の差分実験用に、実物から調べたい値だけを変えた TPL を生成する調査用テスト（`gen_picture_frame_*` / `gen_fmt_*` / `gen_picture_photo_experiment` / `list_fmt_variants` / `fmt_12_13_*` / `dump_template` / `picture_combinations`）を追加（`#[ignore]`、手動実行。#18）。
+- 集計テストに、入力区分（ヘッダの `enter_kind`）と部品の関係を一覧する `list_enter_kind` と、施工管理値の全項目を一覧する `list_cm_values` を追加（#18）。
 
 ### Changed
 
+- 施工管理値（`CmValueBody`）の項目の名前を、実機の「施工管理値の貼り付け」ダイアログの設定に合わせて改名し、意味を `docs/MECHANICS.md` に書いた（`c4` → `count`、`x138` → `design_color`、`x13c` → `actual_color`、`x148` → `border_color`、`x140` → `layout`、`x154` → `name_style`、`x150` → `has_border`、`x14c` → `border_weight`）。保存形式（バイト列）は変わらない（#18）。
+- ヘッダの `enter_kind`（入力区分）が、工事の適用区分から決まる値（国交省 一般土木 H16 = 8、H20 = 14、H22 以降 = 15、電気通信設備 = 16、営繕工事 = 17）であることを、実機で確認して文書化した。値は読んだまま保持する（#18）。
 - 新規の文字項目の既定フォントを、本体と同じ「メイリオ」にした（以前は「ＭＳ Ｐゴシック」）。フォントの選択肢に「メイリオ」「游ゴシック」「游明朝」を足した（MS 系は既存のテンプレートのために残す）。メイリオは、代用せず実際のフォントで描く。egui は、ＭＳ ゴシック・ＭＳ 明朝の字形を正しく描けないため、これらは従来どおり画面表示だけ游ゴシック・游明朝で代用する（#28）。
 - Codecov の集計対象から、手動実行専用の実験用テスト `src/tpl/experiment.rs` を除外。
 - Codecov の集計対象から、手動実行専用の集計テスト `src/tpl/survey.rs` を除外。

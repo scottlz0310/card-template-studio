@@ -84,12 +84,16 @@ fn survey_picture(h: &mut BTreeMap<String, Hist>, p: &PictureBody) {
 
 fn survey_cm(h: &mut BTreeMap<String, Hist>, c: &CmValueBody) {
     add(h, "施工管理値 c0", c.c0);
-    add(h, "施工管理値 c4", c.c4);
-    add(h, "施工管理値 x138", c.x138);
-    add(h, "施工管理値 x13c", c.x13c);
-    add(h, "施工管理値 x148", c.x148);
-    add(h, "施工管理値 (x140, x144)", (c.x140, c.x144));
-    add(h, "施工管理値 (x14c, x150, x154)", (c.x14c, c.x150, c.x154));
+    add(h, "施工管理値 count", c.count);
+    add(h, "施工管理値 design_color", c.design_color);
+    add(h, "施工管理値 actual_color", c.actual_color);
+    add(h, "施工管理値 border_color", c.border_color);
+    add(h, "施工管理値 (layout, x144)", (c.layout, c.x144));
+    add(
+        h,
+        "施工管理値 (border_weight, has_border, name_style)",
+        (c.border_weight, c.has_border, c.name_style),
+    );
     add(
         h,
         "施工管理値 拡張の行数",
@@ -162,6 +166,67 @@ fn list_odd_captions() {
                 c.t108,
                 c.is_value,
                 o.rect
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP が要る。調査用の手動実行"]
+fn list_enter_kind() {
+    let dir = std::env::var("CARD_TPL_SAMPLES").expect("CARD_TPL_SAMPLES が未設定");
+    let mut rows = Vec::new();
+    for (path, t) in load(&dir) {
+        let (mut pics, mut caps, mut cms) = (0, 0, 0);
+        let mut fields = std::collections::BTreeSet::new();
+        for o in &t.objects {
+            match &o.body {
+                Body::Picture(_) => pics += 1,
+                Body::Caption(c) => {
+                    caps += 1;
+                    fields.insert(c.field.to_string_lossy());
+                }
+                Body::CmValue(_) => cms += 1,
+                Body::Passthrough(_) => {}
+            }
+        }
+        let name = path.rsplit(['\\', '/']).next().unwrap_or(&path).to_string();
+        rows.push((t.header.enter_kind, name, pics, caps, cms, fields));
+    }
+    rows.sort();
+    for (k, name, pics, caps, cms, fields) in rows {
+        println!("{k:>3} {name:<40} pic={pics} cap={caps} cm={cms} {fields:?}");
+    }
+}
+
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP が要る。調査用の手動実行"]
+fn list_cm_values() {
+    let dir = std::env::var("CARD_TPL_SAMPLES").expect("CARD_TPL_SAMPLES が未設定");
+    for (path, t) in load(&dir) {
+        for o in &t.objects {
+            let Body::CmValue(c) = &o.body else { continue };
+            let name = path.rsplit(['\\', '/']).next().unwrap_or(&path);
+            println!(
+                "{name:<44} c4={} layout={} x144={} border_color={} border_weight={} has_border={} name_style={} text={:?} rect=[{:.2},{:.2},{:.2},{:.2}] ext={:?}",
+                c.count,
+                c.layout,
+                c.x144,
+                c.border_color,
+                c.border_weight,
+                c.has_border,
+                c.name_style,
+                c.text.to_string_lossy(),
+                o.rect[0],
+                o.rect[1],
+                o.rect[2],
+                o.rect[3],
+                c.ext.as_ref().map(|(a, b, r)| (*a, *b, r.len()))
+            );
+            let hex: String = c.fmt.iter().map(|b| format!("{b:02x}")).collect();
+            println!(
+                "    fmt={hex} design_color={:#08x} actual_color={:#08x}",
+                c.design_color, c.actual_color
             );
         }
     }
