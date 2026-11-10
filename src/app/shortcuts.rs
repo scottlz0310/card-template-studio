@@ -14,13 +14,15 @@ impl StudioApp {
         }
         let cmd = |k| KeyboardShortcut::new(Modifiers::COMMAND, k);
         let cmd_shift = |k| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, k);
-        let (z, y, sz, s, ss, o, n, e) = ctx.input_mut(|i| {
+        // egui の consume_shortcut は修飾キーが余分に押されていても一致するので、
+        // Shift を含むものを先に消費する（後ろだと Ctrl+Z / Ctrl+S に先取りされる）
+        let (sz, ss, z, y, s, o, n, e) = ctx.input_mut(|i| {
             (
+                i.consume_shortcut(&cmd_shift(Key::Z)),
+                i.consume_shortcut(&cmd_shift(Key::S)),
                 i.consume_shortcut(&cmd(Key::Z)),
                 i.consume_shortcut(&cmd(Key::Y)),
-                i.consume_shortcut(&cmd_shift(Key::Z)),
                 i.consume_shortcut(&cmd(Key::S)),
-                i.consume_shortcut(&cmd_shift(Key::S)),
                 i.consume_shortcut(&cmd(Key::O)),
                 i.consume_shortcut(&cmd(Key::N)),
                 i.consume_shortcut(&cmd(Key::E)),
