@@ -20,6 +20,8 @@ mod header;
 mod io;
 mod object;
 mod shape;
+#[cfg(test)]
+mod survey;
 mod template;
 #[cfg(test)]
 mod tests;
