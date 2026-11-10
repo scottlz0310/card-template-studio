@@ -841,3 +841,33 @@ fn picture_frame_style_roundtrips_unchanged() {
         assert_eq!((b.frame_style, b.border_color), (bits, 0x4080ff));
     }
 }
+
+/// 新規の写真枠・文字項目の既定値は、本体（現場編集長 CALSMASTER Ver.25）が
+/// 「通常レイアウトの作成」で作った TPL の値と同じ（実機の生成物から。#18）。
+/// 違いはフォント名だけで、本体は「メイリオ」、このアプリは「ＭＳ Ｐゴシック」。
+#[test]
+fn new_part_defaults_match_the_real_app() {
+    let p = PictureBody::default();
+    assert_eq!(
+        (p.frame_style, p.border_color, p.cc, p.d0, p.d4, p.d8),
+        (0, 0, 0, 0, 0, 0),
+        "四角・枠線なし"
+    );
+    assert_eq!((p.e0, p.e8, p.ec), (0xffff_ffff, 3, None));
+    assert_eq!(p.crop, [0; 32]);
+
+    let real_fmt: [u8; FMT_LEN] = [
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0c, 0x00, 0x07, 0x00, 0x03, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0xd3, 0xff, 0xff, 0xff, 0x00, 0x00,
+        0x00, 0x00, 0x80, 0x80, 0x80, 0x00, 0x80, 0x80, 0x80, 0x00, 0xff, 0xff, 0xff, 0x00,
+    ];
+    for is_value in [false, true] {
+        let c = CaptionBody::new("写真タイトル", "写真タイトル", is_value, 12);
+        assert_eq!(c.fmt, real_fmt, "書式 44 バイト（is_value = {is_value}）");
+        assert_eq!(
+            (c.is_value, c.t108, c.border, c.border_inset, c.border_style),
+            (is_value as i32, 0, 1, 0, Some((0, 0)))
+        );
+        assert_eq!(c.value.to_string_lossy(), "0");
+    }
+}

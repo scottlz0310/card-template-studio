@@ -17,7 +17,7 @@
 
 - 実物の TMPEXP の値の分布を集計する調査用テスト `survey_real_samples`（`#[ignore]`、`CARD_TPL_SAMPLES` 指定時に手動実行。#18）。
 - 集計テストに、文字項目の `is_value` と項目名・表示文字の関係の列、および `is_value` / `t108` が `-1` の部品を一覧する `list_odd_captions` を追加（#18）。
-- 実機の差分実験用に、実物から調べたい値だけを変えた TPL を生成する調査用テスト（`gen_picture_frame_*` / `dump_template` / `picture_combinations`）を追加（`#[ignore]`、手動実行。#18）。
+- 実機の差分実験用に、実物から調べたい値だけを変えた TPL を生成する調査用テスト（`gen_picture_frame_*` / `gen_fmt_*` / `list_fmt_variants` / `fmt_12_13_*` / `dump_template` / `picture_combinations`）を追加（`#[ignore]`、手動実行。#18）。
 
 ### Changed
 
@@ -32,6 +32,7 @@
 
 ### Fixed
 
+- 新規の写真枠の既定値を、本体が新規に作る写真枠と同じ（四角・枠線なし。`frame_style` / `border_color` = 0）にした。以前は角丸・赤い細枠（`0x11` / `0xff`）で、本体と食い違っていた（#18）。
 - 文字項目の `is_value`（+0x10c）が `-1` の部品（実物 14 件。項目に結び付かない固定文字）が、項目値の枠（`〈〉`）として描かれていたのを、項目名と同じく文字として描くようにした。`-1` は読んだまま保持して書き戻す（#22）。
 
 [Unreleased]: https://github.com/scottlz0310/card-template-studio/tree/HEAD

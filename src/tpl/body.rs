@@ -33,8 +33,8 @@ impl Default for PictureBody {
     fn default() -> Self {
         Self {
             crop: [0; 32],
-            frame_style: 0x11,
-            border_color: 0xff,
+            frame_style: 0,
+            border_color: 0,
             guid: SjisString::default(),
             c4: SjisString::default(),
             path: SjisString::default(),
