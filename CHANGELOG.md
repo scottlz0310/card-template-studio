@@ -19,6 +19,7 @@
 
 ### Changed
 
+- Codecov の集計対象から、手動実行専用の実験用テスト `src/tpl/experiment.rs` を除外。
 - Codecov の集計対象から、手動実行専用の集計テスト `src/tpl/survey.rs` を除外。
 - Codecov の集計対象から、OS のネイティブダイアログを呼ぶだけの `src/app/dialogs.rs` を除外（`src/main.rs` と同じ扱い）。
 - ファイル・フォルダ選択と上書き確認のダイアログを `Dialogs` trait 越しにし（本体の実装は `rfd` を呼ぶ `NativeDialogs` に集約）、テストでは差し替えられるようにした（#6）。挙動は変わらない。
