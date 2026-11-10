@@ -525,3 +525,257 @@ fn gen_picture_photo_experiment() {
     let p = write_template(&out, "TEMP1x3_V", "実験_写真設定", &t);
     println!("{}", p.display());
 }
+
+/// 影の距離・袋文字の太さの単位を測る（1x1 のカードに並べる。1×3 への切り替えを避けるため）。
+/// 1 行目: 影の距離 0 / 10 / 20 / 40 / 60（向き 0 = 真右）、2 行目: 距離 30 で向き 0 / 90 / 180 / 270 / -45、
+/// 3 行目: 袋文字の太さ 3 / 10 / 20 / 40 / 60。枠（既定の枠線あり）の幅 1.25 in が、画面での寸法の物差しになる。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_fmt_unit_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x1_V/検証用テンプレート.TPL");
+    t.objects.clear();
+    let shadow = (0x04, 1, 1);
+    let outline = (0x04, 1, 2);
+    let red = (0x20, 4, 0x00_00ff);
+    let red_edge = (0x24, 4, 0x00_00ff);
+    let rows: Vec<Vec<Vec<FmtEdit>>> = vec![
+        [0u32, 10, 20, 40, 60]
+            .iter()
+            .map(|&d| vec![shadow, red, (0x0a, 2, d)])
+            .collect(),
+        [0i32, 90, 180, 270, -45]
+            .iter()
+            .map(|&a| vec![shadow, red, (0x0a, 2, 30), (0x18, 4, a as u32)])
+            .collect(),
+        [3u32, 10, 20, 40, 60]
+            .iter()
+            .map(|&w| vec![outline, red_edge, (0x0c, 2, w)])
+            .collect(),
+    ];
+    for (r, row) in rows.iter().enumerate() {
+        for (c, edits) in row.iter().enumerate() {
+            let (x, y) = (0.1 + c as f64 * 1.4, 0.1 + r as f64 * 0.9);
+            let mut cap = CaptionBody::new("あ", "", false, 28);
+            for (off, width, value) in edits {
+                cap.fmt[*off..*off + *width].copy_from_slice(&value.to_le_bytes()[..*width]);
+            }
+            t.objects
+                .push(Object::new(Body::Caption(cap), [x, y, x + 1.25, y + 0.7]));
+        }
+    }
+    let p = write_template(&out, "TEMP1x1_V", "実験_効果単位", &t);
+    println!("{}", p.display());
+}
+
+/// 影の距離・袋文字の太さが、文字の大きさに比例するかを調べる（`gen_fmt_unit_experiment` の続き）。
+/// 1 行目: 距離 30・向き 0 の影、2 行目: 太さ 20 の袋文字。文字の大きさ 14 / 28 / 42 / 56pt。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_fmt_unit_by_size_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x1_V/検証用テンプレート.TPL");
+    t.objects.clear();
+    let red = (0x20, 4, 0x00_00ff);
+    let red_edge = (0x24, 4, 0x00_00ff);
+    let kinds: [Vec<FmtEdit>; 2] = [
+        vec![(0x04, 1, 1), red, (0x0a, 2, 30), (0x18, 4, 0)],
+        vec![(0x04, 1, 2), red_edge, (0x0c, 2, 20)],
+    ];
+    for (r, base) in kinds.iter().enumerate() {
+        for (c, size) in [14u16, 28, 42, 56].iter().enumerate() {
+            let (x, y) = (0.1 + c as f64 * 1.4, 0.1 + r as f64 * 1.5);
+            let mut cap = CaptionBody::new("あ", "", false, *size);
+            for (off, width, value) in base {
+                cap.fmt[*off..*off + *width].copy_from_slice(&value.to_le_bytes()[..*width]);
+            }
+            t.objects
+                .push(Object::new(Body::Caption(cap), [x, y, x + 1.25, y + 1.3]));
+        }
+    }
+    let p = write_template(&out, "TEMP1x1_V", "実験_効果単位2", &t);
+    println!("{}", p.display());
+}
+
+/// 施工管理値の未確定の項目（`c0` / `x144` / 「差の入力」の行）と、推定のままの値
+/// （`name_style` = 1、`border_weight` = 1、項目文字揃え = 2）を、1x1 のカードに並べて見る（#18）。
+/// 並び（左上から右へ、3 列）: 0 基準 / 1 c0=1 / 2 c0=2 / 3 x144=1 / 4 x144=2 / 5 name_style=1 /
+/// 6 border_weight=1 / 7 差を表示（OBJ2・行なし）/ 8 差を表示+揃え 2 / 9 差の行 1 つ / 10 差の行 2 つ（先頭の値を変える）
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_cm_unknown_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x1_V/検証用テンプレート.TPL");
+    let base = t
+        .objects
+        .iter()
+        .find_map(|o| match &o.body {
+            Body::CmValue(c) => Some(c.clone()),
+            _ => None,
+        })
+        .expect("施工管理値が無い");
+    t.objects.clear();
+    let row = |first: u32, a: &str, b: &str| {
+        let mut r = [0u8; 68];
+        r[0..4].copy_from_slice(&first.to_le_bytes());
+        r[4..4 + a.len()].copy_from_slice(a.as_bytes());
+        r[36..36 + b.len()].copy_from_slice(b.as_bytes());
+        r
+    };
+    type Edit = Box<dyn Fn(&mut CmValueBody)>;
+    let cases: Vec<(Edit, bool)> = vec![
+        (Box::new(|_| {}), false),
+        (Box::new(|c| c.c0 = 1), false),
+        (Box::new(|c| c.c0 = 2), false),
+        (Box::new(|c| c.x144 = 1), false),
+        (Box::new(|c| c.x144 = 2), false),
+        (Box::new(|c| c.name_style = 1), false),
+        (
+            Box::new(|c| {
+                c.border_weight = 1;
+                c.border_color = 0x00_00ff;
+            }),
+            false,
+        ),
+        (Box::new(|c| c.ext = Some((1, 0, vec![]))), true),
+        (Box::new(|c| c.ext = Some((1, 2, vec![]))), true),
+        (
+            Box::new(move |c| c.ext = Some((1, 0, vec![row(1, "AB", "CD")]))),
+            true,
+        ),
+        (
+            Box::new(move |c| {
+                c.ext = Some((1, 0, vec![row(0, "EF", "GH"), row(2, "IJ", "KL")]));
+            }),
+            true,
+        ),
+    ];
+    for (i, (edit, obj2)) in cases.iter().enumerate() {
+        let mut body = base.clone();
+        body.count = 2;
+        body.layout = 0;
+        body.ext = None;
+        edit(&mut body);
+        let (x, y) = (0.1 + (i % 3) as f64 * 2.6, 0.1 + (i / 3) as f64 * 1.3);
+        let mut o = Object::new(Body::CmValue(body), [x, y, x + 2.5, y + 1.2]);
+        if *obj2 {
+            o.tag_version = 2;
+        }
+        t.objects.push(o);
+    }
+    let p = write_template(&out, "TEMP1x1_V", "実験_施工管理値", &t);
+    println!("{}", p.display());
+}
+
+/// 施工管理値の項目文字揃え（ext の 2 番目）と `c0` の、より大きな値を見る（`gen_cm_unknown_experiment` の続き）。
+/// 並び: 0〜3 揃え 0 / 1 / 2 / 3、4〜7 c0 = 3 / 4 / 0x100 / 0xffffffff、8〜9 x144 = 0x100 / 0xffffffff
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_cm_unknown_experiment2() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x1_V/検証用テンプレート.TPL");
+    let base = t
+        .objects
+        .iter()
+        .find_map(|o| match &o.body {
+            Body::CmValue(c) => Some(c.clone()),
+            _ => None,
+        })
+        .expect("施工管理値が無い");
+    t.objects.clear();
+    type Edit = Box<dyn Fn(&mut CmValueBody)>;
+    let mut cases: Vec<Edit> = Vec::new();
+    for a in [0u32, 1, 2, 3] {
+        cases.push(Box::new(move |c| c.ext = Some((1, a, vec![]))));
+    }
+    for v in [3u32, 4, 0x100, 0xffff_ffff] {
+        cases.push(Box::new(move |c| c.c0 = v));
+    }
+    for v in [0x100u32, 0xffff_ffff] {
+        cases.push(Box::new(move |c| c.x144 = v));
+    }
+    for (i, edit) in cases.iter().enumerate() {
+        let mut body = base.clone();
+        body.count = 1;
+        body.layout = 0;
+        body.ext = None;
+        edit(&mut body);
+        let obj2 = body.ext.is_some();
+        let (x, y) = (0.1 + (i % 3) as f64 * 2.6, 0.1 + (i / 3) as f64 * 1.0);
+        let mut o = Object::new(Body::CmValue(body), [x, y, x + 2.5, y + 0.9]);
+        if obj2 {
+            o.tag_version = 2;
+        }
+        t.objects.push(o);
+    }
+    let p = write_template(&out, "TEMP1x1_V", "実験_施工管理値2", &t);
+    println!("{}", p.display());
+}
+
+/// `gen_cm_unknown_experiment2` の 1 枚が、本体で読み込めなかった（プレビューが空で OK が押せない）ため、
+/// 値の組ごとに別のファイルへ分けて、どの値が弾かれるかを調べる。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_cm_reject_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let base_t = read_template("TEMP1x1_V/検証用テンプレート.TPL");
+    let base = base_t
+        .objects
+        .iter()
+        .find_map(|o| match &o.body {
+            Body::CmValue(c) => Some(c.clone()),
+            _ => None,
+        })
+        .expect("施工管理値が無い");
+    type Edit = Box<dyn Fn(&mut CmValueBody)>;
+    let groups: Vec<(&str, Vec<Edit>)> = vec![
+        (
+            "rj1_align23",
+            vec![
+                Box::new(|c| c.ext = Some((1, 2, vec![]))),
+                Box::new(|c| c.ext = Some((1, 3, vec![]))),
+            ],
+        ),
+        (
+            "rj2_c0small",
+            vec![
+                Box::new(|c| c.c0 = 3),
+                Box::new(|c| c.c0 = 4),
+                Box::new(|c| c.c0 = 0x100),
+            ],
+        ),
+        ("rj3_c0max", vec![Box::new(|c| c.c0 = 0xffff_ffff)]),
+        ("rj4_x144_100", vec![Box::new(|c| c.x144 = 0x100)]),
+        ("rj5_x144max", vec![Box::new(|c| c.x144 = 0xffff_ffff)]),
+        ("rj6_base", vec![Box::new(|_| {})]),
+    ];
+    for (name, edits) in &groups {
+        let mut t = base_t.clone();
+        t.objects.clear();
+        for (i, edit) in edits.iter().enumerate() {
+            let mut body = base.clone();
+            body.count = 1;
+            body.layout = 0;
+            body.ext = None;
+            edit(&mut body);
+            let obj2 = body.ext.is_some();
+            let y = 0.1 + i as f64 * 1.0;
+            let mut o = Object::new(Body::CmValue(body), [0.1, y, 2.6, y + 0.9]);
+            if obj2 {
+                o.tag_version = 2;
+            }
+            t.objects.push(o);
+        }
+        println!("{}", write_template(&out, "TEMP1x1_V", name, &t).display());
+    }
+}
