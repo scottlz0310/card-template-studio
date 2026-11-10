@@ -72,6 +72,35 @@ fn color_button(ui: &mut egui::Ui, c: &mut u32) -> bool {
     }
 }
 
+/// cp932 で表せない文字（絵文字など）を受け付けない文字入力。そうした文字が入る変更は取り消し、
+/// その場に警告を出す（受け付けた後に別の文字列へ置き換えて黙って保存することはしない。#16）
+fn sjis_text_edit(
+    ui: &mut egui::Ui,
+    id: (&'static str, usize),
+    v: &mut String,
+    add: impl FnOnce(&mut egui::Ui, &mut String) -> egui::Response,
+) -> egui::Response {
+    let id = ui.make_persistent_id(("sjis-rejected", id));
+    let before = v.clone();
+    let r = add(ui, v);
+    if r.changed() {
+        let rejected = tpl::sjis_unmappable(v);
+        if rejected {
+            *v = before;
+        }
+        ui.data_mut(|d| d.insert_temp(id, rejected));
+    } else if !r.has_focus() {
+        ui.data_mut(|d| d.remove_temp::<bool>(id));
+    }
+    if ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) {
+        ui.colored_label(
+            Color32::from_rgb(0xc0, 0x39, 0x2b),
+            "本体で扱えない文字（cp932 に無い文字）は入力できません",
+        );
+    }
+    r
+}
+
 /// 一時的に編集した値を、変わったときだけ書き戻す
 fn edit<T: Clone + PartialEq>(
     doc: &mut Document,
@@ -361,20 +390,16 @@ fn caption_props(
             |d, v| caption_mut(d, i).text = SjisString::from_str(&v),
             |v| {
                 ui.label("表示する文字");
-                let r = ui.add(
-                    egui::TextEdit::multiline(v)
-                        .desired_rows(2)
-                        .desired_width(f32::INFINITY),
-                );
+                let r = sjis_text_edit(ui, ("text", i), v, |ui, v| {
+                    ui.add(
+                        egui::TextEdit::multiline(v)
+                            .desired_rows(2)
+                            .desired_width(f32::INFINITY),
+                    )
+                });
                 if *focus_text {
                     r.request_focus();
                     *focus_text = false;
-                }
-                if tpl::sjis_unmappable(v) {
-                    ui.colored_label(
-                        Color32::from_rgb(0xc0, 0x39, 0x2b),
-                        "本体で扱えない文字が含まれています（保存すると「?」になります）",
-                    );
                 }
             },
         );
@@ -407,11 +432,13 @@ fn caption_props(
                         }
                     });
             });
-            ui.add(
-                egui::TextEdit::singleline(v)
-                    .hint_text("項目名を直接入力")
-                    .desired_width(f32::INFINITY),
-            );
+            sjis_text_edit(ui, ("field-text", i), v, |ui, v| {
+                ui.add(
+                    egui::TextEdit::singleline(v)
+                        .hint_text("項目名を直接入力")
+                        .desired_width(f32::INFINITY),
+                )
+            });
         },
     );
     if !is_value
@@ -1188,11 +1215,11 @@ mod tests {
     }
 
     #[test]
-    fn unmappable_text_is_replaced_with_character_reference() {
-        // cp932 に無い文字は SjisString にすると「?」になるので、画面にだけ警告を出す
+    fn unmappable_text_is_rejected_with_a_warning() {
+        // cp932 に無い文字（絵文字など）は入力を受け付けず、警告を出す。別の文字列へ化けて保存されない
         let mut object = caption("a", "", false, 0.1);
         if let Body::Caption(c) = &mut object.body {
-            c.text = SjisString(vec![]);
+            c.text = SjisString::from_str("あ");
         }
         let mut h = harness(vec![object], &[0]);
         assert!(h.query_by_label_contains("本体で扱えない文字").is_none());
@@ -1201,12 +1228,27 @@ mod tests {
         h.get_by_role(egui::accesskit::Role::MultilineTextInput)
             .type_text("😀");
         h.run();
-        // 現状の挙動の固定: encoding_rs は表せない文字を数値文字参照に置き換えるため、
-        // 画面の説明（「?」になります）とは食い違い、置き換え後は警告も消える
-        assert_eq!(caption_body(&h, 0).text.to_string_lossy(), "&#128512;");
+        assert_eq!(caption_body(&h, 0).text.to_string_lossy(), "あ");
+        assert!(h.query_by_label_contains("本体で扱えない文字").is_some());
+        // 表せる文字はそのまま入り、警告は消える
+        h.get_by_role(egui::accesskit::Role::MultilineTextInput)
+            .type_text("い");
+        h.run();
+        assert_eq!(caption_body(&h, 0).text.to_string_lossy(), "あい");
         assert!(h.query_by_label_contains("本体で扱えない文字").is_none());
     }
 
+    #[test]
+    fn unmappable_field_name_is_rejected_too() {
+        let mut h = harness(vec![caption("a", "写真タイトル", true, 0.1)], &[0]);
+        let input = h.get_by_role(egui::accesskit::Role::TextInput);
+        input.focus();
+        h.get_by_role(egui::accesskit::Role::TextInput)
+            .type_text("😀");
+        h.run();
+        assert_eq!(caption_body(&h, 0).field.to_string_lossy(), "写真タイトル");
+        assert!(h.query_by_label_contains("本体で扱えない文字").is_some());
+    }
     #[test]
     fn focus_request_is_consumed_by_the_text_field() {
         let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
