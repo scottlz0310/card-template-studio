@@ -873,7 +873,7 @@ mod tests {
     fn add_picture_inherits_from_existing_picture_but_clears_paths() {
         let mut d = Document::new(Template::default(), "t", None);
         let mut p = PictureBody {
-            b8: 0x99,
+            frame_style: 0x99,
             guid: SjisString::from_str("guid"),
             path: SjisString::from_str("C:\\a.jpg"),
             ..PictureBody::default()
@@ -886,7 +886,7 @@ mod tests {
         assert_eq!(d.selection, [i].into());
         match &d.template.objects[i].body {
             Body::Picture(p) => {
-                assert_eq!((p.b8, p.e8), (0x99, 7), "未解明の値は引き継ぐ");
+                assert_eq!((p.frame_style, p.e8), (0x99, 7), "未解明の値は引き継ぐ");
                 assert!(p.guid.is_empty() && p.path.is_empty());
             }
             _ => unreachable!(),

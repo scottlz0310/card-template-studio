@@ -765,3 +765,79 @@ fn parse_error_display_includes_offset() {
 fn border_width_table() {
     assert_eq!(BORDER_WIDTHS_MM, [0.1, 0.3, 0.7]);
 }
+
+/// 写真枠の frame_style: 下位 4 ビット = 形、bit 4〜7 = 枠線の太さ。範囲外は四角・枠線なし（#25）
+#[test]
+fn picture_frame_style_decodes_shape_and_border() {
+    use PictureBorder::{Medium, None as NoBorder, Thick, Thin};
+    use PictureShape::{Ellipse, Rect, Rounded};
+    let cases = [
+        (0x00, Rect, NoBorder),
+        (0x11, Rounded, Thin),
+        (0x01, Rounded, NoBorder),
+        (0x02, Ellipse, NoBorder),
+        (0x03, Ellipse, NoBorder),
+        (0x04, Rect, NoBorder),
+        (0x0f, Rect, NoBorder),
+        (0x10, Rect, Thin),
+        (0x21, Rounded, Medium),
+        (0x31, Rounded, Thick),
+        (0x41, Rounded, NoBorder),
+        (0xf1, Rounded, NoBorder),
+        (0x111, Rounded, Thin),
+        (0x811, Rounded, Thin),
+    ];
+    for (bits, shape, border) in cases {
+        let p = PictureBody {
+            frame_style: bits,
+            ..PictureBody::default()
+        };
+        assert_eq!(p.shape(), shape, "frame_style = {bits:#x}");
+        assert_eq!(p.border(), border, "frame_style = {bits:#x}");
+    }
+}
+
+#[test]
+fn picture_frame_setters_keep_the_other_bits() {
+    // 上位ビット（0x100）と、範囲外の形・太さを持つ値は、触っていない側をそのまま保つ
+    let base = 0x100 | 0x20 | 0x03;
+    let mut p = PictureBody {
+        frame_style: base,
+        ..PictureBody::default()
+    };
+    p.set_shape(PictureShape::Rounded);
+    assert_eq!(p.frame_style, 0x100 | 0x20 | 0x01, "太さと上位ビットは保つ");
+    p.set_border(PictureBorder::Thick);
+    assert_eq!(p.frame_style, 0x100 | 0x30 | 0x01, "形と上位ビットは保つ");
+    p.set_border(PictureBorder::None);
+    p.set_shape(PictureShape::Ellipse);
+    assert_eq!(p.frame_style, 0x100 | 0x02);
+
+    for shape in PictureShape::ALL {
+        for border in PictureBorder::ALL {
+            let mut p = PictureBody::default();
+            p.set_shape(shape);
+            p.set_border(border);
+            assert_eq!((p.shape(), p.border()), (shape, border));
+        }
+    }
+}
+
+#[test]
+fn picture_frame_style_roundtrips_unchanged() {
+    for bits in [0x00, 0x11, 0x31, 0x03, 0xf4, 0x811] {
+        let mut t = Template::default();
+        let body = PictureBody {
+            frame_style: bits,
+            border_color: 0x4080ff,
+            ..PictureBody::default()
+        };
+        t.objects
+            .push(Object::new(Body::Picture(body), [0.0, 0.0, 1.0, 1.0]));
+        let back = Template::parse(&t.to_bytes()).unwrap();
+        let Body::Picture(b) = &back.objects[0].body else {
+            unreachable!()
+        };
+        assert_eq!((b.frame_style, b.border_color), (bits, 0x4080ff));
+    }
+}

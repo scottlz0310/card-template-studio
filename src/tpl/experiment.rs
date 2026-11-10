@@ -37,7 +37,7 @@ fn dump_template() {
         match &o.body {
             Body::Picture(p) => println!(
                 "#{i} 写真枠 link={} rect={:?} b8={} bc={:#x} cc={:#x} d4={} d8={} e0={:#x} e8={} ec={:?}",
-                o.link, o.rect, p.b8, p.bc, p.cc, p.d4, p.d8, p.e0, p.e8, p.ec
+                o.link, o.rect, p.frame_style, p.border_color, p.cc, p.d4, p.d8, p.e0, p.e8, p.ec
             ),
             Body::Caption(c) => println!(
                 "#{i} 文字 link={} rect={:?} text={:?} field={:?} is_value={}",
@@ -71,7 +71,7 @@ fn picture_combinations() {
                 if let Body::Picture(pb) = &o.body {
                     let key = format!(
                         "b8={} bc={:#x} cc={:#x} e8={} 大きさ=({}, {})",
-                        pb.b8, pb.bc, pb.cc, pb.e8, pb.d4, pb.d8
+                        pb.frame_style, pb.border_color, pb.cc, pb.e8, pb.d4, pb.d8
                     );
                     *h.entry(key).or_default() += 1;
                 }
@@ -116,8 +116,8 @@ fn gen_picture_frame_experiment() {
         let mut o = base.clone();
         o.rect = [x, y, x + 1.85, y + 1.65];
         let mut b = base_body.clone();
-        b.b8 = *b8;
-        b.bc = *bc;
+        b.frame_style = *b8;
+        b.border_color = *bc;
         o.body = Body::Picture(b);
         t.objects.push(o);
     }
@@ -156,8 +156,8 @@ fn gen_picture_frame_border_experiment() {
         let mut o = base.clone();
         o.rect = [x, y, x + 1.85, y + 1.65];
         let mut b = base_body.clone();
-        b.b8 = 0x11;
-        b.bc = 0x0000ff;
+        b.frame_style = 0x11;
+        b.border_color = 0x0000ff;
         (b.cc, b.d0, b.e0) = (*cc, *d0, *e0);
         o.body = Body::Picture(b);
         t.objects.push(o);
@@ -186,8 +186,8 @@ fn gen_picture_frame_b8_nibble_experiment() {
         let mut o = base.clone();
         o.rect = [x, y, x + 0.9, y + 1.65];
         let mut b = base_body.clone();
-        b.b8 = (n << 4) | 1;
-        b.bc = 0x0000ff;
+        b.frame_style = (n << 4) | 1;
+        b.border_color = 0x0000ff;
         o.body = Body::Picture(b);
         t.objects.push(o);
     }
@@ -215,8 +215,8 @@ fn gen_picture_frame_b8_shape_experiment() {
         let mut o = base.clone();
         o.rect = [x, y, x + 0.9, y + 1.65];
         let mut b = base_body.clone();
-        b.b8 = 0x10 | n;
-        b.bc = 0x0000ff;
+        b.frame_style = 0x10 | n;
+        b.border_color = 0x0000ff;
         o.body = Body::Picture(b);
         t.objects.push(o);
     }

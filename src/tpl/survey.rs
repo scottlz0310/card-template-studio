@@ -72,8 +72,8 @@ fn survey_caption(h: &mut BTreeMap<String, Hist>, c: &CaptionBody) {
 }
 
 fn survey_picture(h: &mut BTreeMap<String, Hist>, p: &PictureBody) {
-    add(h, "写真枠 b8", p.b8);
-    add(h, "写真枠 bc", p.bc);
+    add(h, "写真枠 b8", p.frame_style);
+    add(h, "写真枠 bc", p.border_color);
     add(h, "写真枠 cc", p.cc);
     add(h, "写真枠 d0", p.d0);
     add(h, "写真枠 (d4, d8)", (p.d4, p.d8));

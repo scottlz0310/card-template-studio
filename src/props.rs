@@ -223,21 +223,7 @@ fn object_props(ui: &mut egui::Ui, doc: &mut Document, i: usize, focus_text: &mu
         .count() as u32;
     match &doc.template.objects[i].body {
         Body::Caption(_) => caption_props(ui, doc, i, pictures, focus_text),
-        Body::Picture(_) => {
-            section(ui, "写真枠");
-            let no = doc.template.objects[..=i]
-                .iter()
-                .filter(|o| o.kind == tpl::KIND_PICTURE)
-                .count();
-            ui.label(format!(
-                "カード内の {no} 枚目の写真です。アルバムで写真を貼るとここに入ります。"
-            ));
-            ui.label(
-                RichText::new("写真枠のその他の設定は、元のファイルの値をそのまま保持します。")
-                    .small()
-                    .weak(),
-            );
-        }
+        Body::Picture(_) => picture_props(ui, doc, i),
         Body::CmValue(_) => {
             section(ui, "施工管理値");
             ui.label("施工管理値の表です。位置と大きさを変えられます。中身の設定は元のファイルのまま保持します。");
@@ -248,6 +234,79 @@ fn object_props(ui: &mut egui::Ui, doc: &mut Document, i: usize, focus_text: &mu
             ui.label("位置・大きさ・中身は変更できません（本体側で編集してください）。");
         }
     }
+}
+
+fn picture_mut(doc: &mut Document, i: usize) -> &mut tpl::PictureBody {
+    match &mut doc.template.objects[i].body {
+        Body::Picture(p) => p,
+        _ => unreachable!("写真枠ではありません"),
+    }
+}
+
+fn picture_ref(doc: &Document, i: usize) -> &tpl::PictureBody {
+    match &doc.template.objects[i].body {
+        Body::Picture(p) => p,
+        _ => unreachable!("写真枠ではありません"),
+    }
+}
+
+fn picture_props(ui: &mut egui::Ui, doc: &mut Document, i: usize) {
+    section(ui, "写真枠");
+    let no = doc.template.objects[..=i]
+        .iter()
+        .filter(|o| o.kind == tpl::KIND_PICTURE)
+        .count();
+    ui.label(format!(
+        "カード内の {no} 枚目の写真です。アルバムで写真を貼るとここに入ります。"
+    ));
+
+    section(ui, "形と枠線");
+    edit(
+        doc,
+        &format!("pshape-{i}"),
+        |d| picture_ref(d, i).shape(),
+        |d, v| picture_mut(d, i).set_shape(v),
+        |v| {
+            ui.horizontal(|ui| {
+                ui.label("形");
+                for s in tpl::PictureShape::ALL {
+                    ui.selectable_value(v, s, s.label());
+                }
+            });
+        },
+    );
+    edit(
+        doc,
+        &format!("pborder-{i}"),
+        |d| {
+            let p = picture_ref(d, i);
+            (p.border(), p.border_color)
+        },
+        |d, (border, col)| {
+            let p = picture_mut(d, i);
+            p.set_border(border);
+            p.border_color = col;
+        },
+        |(border, col)| {
+            ui.horizontal(|ui| {
+                ui.label("枠線の太さ");
+                for b in tpl::PictureBorder::ALL {
+                    ui.selectable_value(border, b, b.label());
+                }
+            });
+            if *border != tpl::PictureBorder::None {
+                ui.horizontal(|ui| {
+                    ui.label("枠線の色");
+                    color_button(ui, col);
+                });
+            }
+        },
+    );
+    ui.label(
+        RichText::new("写真枠のその他の設定は、元のファイルの値をそのまま保持します。")
+            .small()
+            .weak(),
+    );
 }
 
 fn caption_mut(doc: &mut Document, i: usize) -> &mut tpl::CaptionBody {
@@ -736,6 +795,55 @@ mod tests {
         );
     }
 
+    #[test]
+    fn picture_shape_and_border_are_editable_and_keep_other_bits() {
+        let mut o = picture(0.1);
+        let Body::Picture(p) = &mut o.body else {
+            unreachable!()
+        };
+        p.frame_style = 0x100 | 0x11; // 角丸・細い枠線＋見た目に効かない上位ビット
+        let mut h = harness(vec![o], &[0]);
+        let style = |h: &Harness<'_, State>| match &h.state().doc.template.objects[0].body {
+            Body::Picture(p) => p.frame_style,
+            _ => unreachable!(),
+        };
+        h.get_by_label("楕円").click();
+        h.run();
+        assert_eq!(style(&h), 0x100 | 0x12);
+        h.get_by_label("太い").click();
+        h.run();
+        assert_eq!(style(&h), 0x100 | 0x32);
+        h.get_by_label("四角").click();
+        h.run();
+        assert_eq!(style(&h), 0x100 | 0x30);
+        assert!(h.query_by_label_contains("枠線の色").is_some());
+        h.get_by_label("なし").click();
+        h.run();
+        assert_eq!(style(&h), 0x100);
+        assert!(
+            h.query_by_label_contains("枠線の色").is_none(),
+            "太さが「なし」のときは色を出さない"
+        );
+    }
+
+    #[test]
+    fn picture_border_color_is_kept_when_switching_width() {
+        let mut o = picture(0.1);
+        let Body::Picture(p) = &mut o.body else {
+            unreachable!()
+        };
+        p.border_color = 0x4080ff;
+        let mut h = harness(vec![o], &[0]);
+        h.get_by_label("中").click();
+        h.run();
+        let Body::Picture(p) = &h.state().doc.template.objects[0].body else {
+            unreachable!()
+        };
+        assert_eq!(
+            (p.border(), p.border_color),
+            (tpl::PictureBorder::Medium, 0x4080ff)
+        );
+    }
     #[test]
     fn picture_number_counts_from_first_picture() {
         let h = harness(vec![picture(0.1), picture(2.0)], &[1]);

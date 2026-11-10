@@ -114,6 +114,40 @@ pub(super) fn draw_card(
     );
 }
 
+/// 写真枠の太さ（なし / 細い / 中 / 太い）を、画面に描く線の太さ（mm）にしたもの。
+/// 太さの順序は実機で確認済み。mm の値は実機の見た目から目視で見積もった推定
+const PICTURE_BORDER_MM: [f64; 4] = [0.0, 0.3, 0.6, 1.0];
+
+/// 角丸の半径の、枠の短い辺に対する割合（実機の見た目からの推定）
+const PICTURE_CORNER_RATIO: f32 = 0.16;
+
+/// 写真枠の下地と枠線（形・太さ・色は `PictureBody` の値）
+fn draw_picture_frame(p: &egui::Painter, xf: &Xf, r: Rect, pb: &tpl::PictureBody) {
+    let stroke = match pb.border() {
+        // 本体は枠線なしだが、編集中に枠を見失わないよう、うっすらと縁を描く
+        tpl::PictureBorder::None => Stroke::new(1.0, PHOTO_EDGE.gamma_multiply(0.4)),
+        b => {
+            let mm = PICTURE_BORDER_MM[b as usize];
+            let px = (mm / MM_PER_INCH * xf.ppi as f64).max(1.0) as f32;
+            Stroke::new(px, color(pb.border_color))
+        }
+    };
+    match pb.shape() {
+        tpl::PictureShape::Rect => {
+            p.rect(r, 0.0, PHOTO_FILL, stroke, StrokeKind::Inside);
+        }
+        tpl::PictureShape::Rounded => {
+            let radius = (r.width().min(r.height()) * PICTURE_CORNER_RATIO).round();
+            p.rect(r, radius, PHOTO_FILL, stroke, StrokeKind::Inside);
+        }
+        tpl::PictureShape::Ellipse => {
+            let radii = r.size() / 2.0 - Vec2::splat(stroke.width / 2.0);
+            p.add(Shape::ellipse_filled(r.center(), radii, PHOTO_FILL));
+            p.add(Shape::ellipse_stroke(r.center(), radii, stroke));
+        }
+    }
+}
+
 pub(super) fn draw_object(
     p: &egui::Painter,
     xf: &Xf,
@@ -123,14 +157,8 @@ pub(super) fn draw_object(
 ) {
     let r = xf.rect(o.normalized());
     match &o.body {
-        Body::Picture(_) => {
-            p.rect(
-                r,
-                0.0,
-                PHOTO_FILL,
-                Stroke::new(1.0, PHOTO_EDGE),
-                StrokeKind::Inside,
-            );
+        Body::Picture(pb) => {
+            draw_picture_frame(p, xf, r, pb);
             // 山と太陽の簡単な絵
             let s = (r.width().min(r.height()) * 0.28).clamp(8.0, 90.0);
             let c = r.center();
