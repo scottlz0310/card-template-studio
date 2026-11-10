@@ -580,6 +580,54 @@ impl Document {
     }
 
     /// 間隔を等しくする（横 / 縦）
+    /// 選んだ文字項目を行ごとにまとめ、いちばん上の行（列が 2 つ以上）の列の区切りに、ほかの行の列をそろえる。
+    /// 列の数が違う行はそのまま。動かす物が無ければ何もしない（false）。「元に戻す」は 1 回で戻る
+    pub fn align_table_columns(&mut self) -> bool {
+        let mut sel: Vec<(usize, [f64; 4])> = self
+            .selected_editable()
+            .into_iter()
+            .filter(|&i| matches!(self.template.objects[i].body, Body::Caption(_)))
+            .map(|i| (i, self.template.objects[i].normalized()))
+            .collect();
+        sel.sort_by(|a, b| (a.1[1] + a.1[3]).total_cmp(&(b.1[1] + b.1[3])));
+        // 縦の中心が、行の先頭の部品の高さに入る物を、同じ行とする
+        let mut rows: Vec<Vec<(usize, [f64; 4])>> = Vec::new();
+        for item in sel {
+            let center = (item.1[1] + item.1[3]) / 2.0;
+            match rows.last_mut() {
+                Some(row) if center >= row[0].1[1] && center <= row[0].1[3] => row.push(item),
+                _ => rows.push(vec![item]),
+            }
+        }
+        for row in &mut rows {
+            row.sort_by(|a, b| a.1[0].total_cmp(&b.1[0]));
+        }
+        let Some(reference) = rows.iter().position(|r| r.len() >= 2) else {
+            return false;
+        };
+        let mut moves: Vec<(usize, f64, f64)> = Vec::new();
+        for (r, row) in rows.iter().enumerate() {
+            if r == reference || row.len() != rows[reference].len() {
+                continue;
+            }
+            for (item, base) in row.iter().zip(&rows[reference]) {
+                if (item.1[0] - base.1[0]).abs() > 1e-9 || (item.1[2] - base.1[2]).abs() > 1e-9 {
+                    moves.push((item.0, base.1[0], base.1[2]));
+                }
+            }
+        }
+        if moves.is_empty() {
+            return false;
+        }
+        self.checkpoint(None);
+        for (i, x0, x1) in moves {
+            let r = &mut self.template.objects[i].rect;
+            r[0] = x0;
+            r[2] = x1;
+        }
+        true
+    }
+
     pub fn distribute(&mut self, horizontal: bool) {
         let mut sel = self.selected_editable();
         if sel.len() < 3 {
@@ -1353,6 +1401,68 @@ mod tests {
         d.add_field_table(&[], [0.0, 0.0, 1.0, 1.0], 0.3);
         assert!(d.template.objects.is_empty());
         assert!(!d.can_undo());
+    }
+
+    #[test]
+    fn align_table_columns_follows_the_top_row() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let fields: Vec<String> = ["工種", "種別", "細別"]
+            .iter()
+            .map(|f| f.to_string())
+            .collect();
+        d.add_field_table(&fields, [0.0, 0.0, 3.0, 1.5], 0.4);
+        // 2 行目と 3 行目の区切りを、手で動かしてずらす
+        d.template.objects[2].rect[2] = 0.9;
+        d.template.objects[3].rect[0] = 0.9;
+        d.template.objects[4].rect[2] = 1.7;
+        d.template.objects[5].rect[0] = 1.7;
+        d.select_all();
+        d.undo.clear();
+        assert!(d.align_table_columns());
+        // 1 行目（項目名 0〜1.2、項目値 1.2〜3.0）にそろう
+        let xs: Vec<(f64, f64)> = d
+            .template
+            .objects
+            .iter()
+            .map(|o| (o.rect[0], o.rect[2]))
+            .collect();
+        let near =
+            |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9;
+        for pair in xs.chunks(2) {
+            assert!(near(pair[0], (0.0, 1.2)), "{pair:?}");
+            assert!(near(pair[1], (1.2, 3.0)), "{pair:?}");
+        }
+        // 縦の位置・高さは動かない
+        assert_eq!(d.template.objects[2].rect[1], 0.5);
+        // 1 回で元に戻る
+        d.undo();
+        assert_eq!(d.template.objects[2].rect[2], 0.9);
+        assert!(!d.can_undo());
+    }
+
+    #[test]
+    fn align_table_columns_skips_rows_with_a_different_column_count_and_noops() {
+        let mut d = Document::new(Template::default(), "t", None);
+        d.add_field_row("工種", (0.0, 0.0), 0.5, 1.5, 0.25);
+        d.add_field_row("種別", (0.0, 0.25), 0.8, 1.2, 0.25);
+        // 3 列の行は、列の数が違うので対象外
+        d.add_caption("a", "", false, [0.0, 0.5, 0.5, 0.75]);
+        d.add_caption("b", "", false, [0.5, 0.5, 1.0, 0.75]);
+        d.add_caption("c", "", false, [1.0, 0.5, 2.0, 0.75]);
+        d.select_all();
+        assert!(d.align_table_columns());
+        assert_eq!(d.template.objects[2].rect[0..4], [0.0, 0.25, 0.5, 0.5]);
+        assert_eq!(d.template.objects[3].rect[0..4], [0.5, 0.25, 2.0, 0.5]);
+        assert_eq!(d.template.objects[5].rect[2], 1.0);
+        // すでにそろっていれば、何もせず「元に戻す」の履歴も積まない
+        d.undo.clear();
+        assert!(!d.align_table_columns());
+        assert!(!d.can_undo());
+        // 列が 2 つ以上の行が無い・1 つしか選んでいないときも、何もしない
+        d.selection = [4].into();
+        assert!(!d.align_table_columns());
+        d.selection.clear();
+        assert!(!d.align_table_columns());
     }
     #[test]
     fn delete_copy_and_paste() {

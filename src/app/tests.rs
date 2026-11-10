@@ -2,7 +2,7 @@ use super::*;
 use crate::test_support::TempDir;
 use crate::tpl::{KIND_CAPTION, KIND_PICTURE};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 type H = Harness<'static, StudioApp>;
 
@@ -965,4 +965,28 @@ fn insert_table_buttons_stay_reachable_with_many_rows_at_the_minimum_window_size
         Some(Modal::InsertTable { spec }) => assert_eq!(spec.fields.len(), 20),
         _ => panic!("表組の挿入が開いていない"),
     }
+}
+
+#[test]
+fn align_panel_button_aligns_table_columns_to_the_top_row() {
+    let mut h = harness();
+    // 見本の 2 行目（項目名 = #4、項目値 = #5）の区切りを、左へずらす
+    let x = app(&mut h).doc.template.objects[3].rect[2];
+    app(&mut h).doc.template.objects[3].rect[2] = x - 0.3;
+    app(&mut h).doc.template.objects[4].rect[0] = x - 0.3;
+    app(&mut h).doc.selection = (1..11).collect();
+    h.run();
+    h.get_by_label("表組の列の区切りをそろえる").click();
+    h.run();
+    let o = &app(&mut h).doc.template.objects;
+    assert!((o[3].rect[2] - o[1].rect[2]).abs() < 1e-9);
+    assert!((o[4].rect[0] - o[2].rect[0]).abs() < 1e-9);
+    // 2 つ以下しか選んでいないときは押せない
+    app(&mut h).doc.selection = [1, 2].into();
+    h.run();
+    assert!(
+        h.get_by_label("表組の列の区切りをそろえる")
+            .accesskit_node()
+            .is_disabled()
+    );
 }
