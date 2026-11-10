@@ -59,7 +59,7 @@ impl StudioApp {
                     let _ = picture_no;
                     let text = match &o.body {
                         crate::tpl::Body::Caption(c) => {
-                            if c.is_value != 0 {
+                            if c.is_value_cell() {
                                 format!("〈{}〉", c.field.to_string_lossy())
                             } else {
                                 c.text.to_string_lossy().replace("\r\n", " ")

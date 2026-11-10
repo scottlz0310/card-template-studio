@@ -27,4 +27,8 @@
 - `src/canvas.rs` を責務ごとのサブモジュール（`tool` / `view` / `geometry` / `snap` / `state` / `draw` / `show`）に分割（#6）。挙動は変わらない。
 - `src/tpl.rs` を責務ごとのサブモジュール（`text` / `io` / `header` / `export` / `format` / `body` / `object` / `shape` / `codec` / `template`）に分割（#6）。挙動・公開 API・.TPL のバイト列は変わらない。
 
+### Fixed
+
+- 文字項目の `is_value`（+0x10c）が `-1` の部品（実物 14 件。項目に結び付かない固定文字）が、項目値の枠（`〈〉`）として描かれていたのを、項目名と同じく文字として描くようにした。`-1` は読んだまま保持して書き戻す（#22）。
+
 [Unreleased]: https://github.com/scottlz0310/card-template-studio/tree/HEAD

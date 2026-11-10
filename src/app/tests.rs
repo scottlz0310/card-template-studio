@@ -810,3 +810,26 @@ fn canvas_context_actions_are_applied() {
     let last = app(&mut h).doc.template.objects.len() - 1;
     assert_eq!(app(&mut h).doc.selection, [last].into());
 }
+
+#[test]
+fn layer_list_shows_fixed_text_not_value_placeholder() {
+    // is_value = -1（固定文字）は項目名が空。値の枠（〈〉）ではなく文字そのものを並べる（#22）
+    let mut h = harness();
+    let mut c = crate::tpl::CaptionBody::new("撮影日", "", false, 12);
+    c.is_value = -1;
+    app(&mut h)
+        .doc
+        .template
+        .objects
+        .push(crate::tpl::Object::new(
+            crate::tpl::Body::Caption(c),
+            [0.0, 0.0, 1.0, 1.0],
+        ));
+    h.run();
+    assert!(h.query_by_label_contains("撮影日").is_some());
+    assert_eq!(
+        h.get_all_by_label_contains("〈").count(),
+        5,
+        "値の枠は増えない"
+    );
+}

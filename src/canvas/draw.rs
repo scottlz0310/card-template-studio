@@ -179,7 +179,7 @@ pub(super) fn draw_object(
                 p.rect_stroke(r, 0.0, Stroke::new(px, color(col)), StrokeKind::Inside);
             }
             let field = c.field.to_string_lossy();
-            let (text, placeholder) = if c.is_value != 0 {
+            let (text, placeholder) = if c.is_value_cell() {
                 if samples {
                     (sample_value(&field).to_string(), false)
                 } else {

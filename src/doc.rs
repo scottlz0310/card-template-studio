@@ -223,7 +223,7 @@ impl Document {
     ) -> usize {
         self.checkpoint(None);
         let template_caption = self.template.objects.iter().find_map(|o| match &o.body {
-            Body::Caption(c) if (c.is_value != 0) == is_value && o.tag_version == 2 => {
+            Body::Caption(c) if c.is_value == is_value as i32 && o.tag_version == 2 => {
                 Some(c.clone())
             }
             _ => None,
@@ -915,6 +915,27 @@ mod tests {
         assert_eq!(cb.border, 1, "項目値は既定の書式");
         assert_eq!(cb.is_value, 1);
         assert_eq!(tpl::read_fmt_u16(&cb.fmt, tpl::fmt_off::SIZE), 12);
+    }
+
+    #[test]
+    fn add_caption_does_not_inherit_from_fixed_text() {
+        // is_value = -1（固定文字）は項目名とも項目値とも別。新しい部品の書式の見本にしない
+        let mut d = Document::new(Template::default(), "t", None);
+        let mut fixed = CaptionBody::new("撮影日", "", false, 20);
+        fixed.is_value = -1;
+        fixed.t108 = -1;
+        fixed.border = 0;
+        d.template
+            .objects
+            .push(Object::new(Body::Caption(fixed), [0.0, 0.0, 1.0, 1.0]));
+        let a = d.add_caption("項目名", "工種", false, [0.0, 1.0, 1.0, 2.0]);
+        let b = d.add_caption("", "工種", true, [1.0, 1.0, 2.0, 2.0]);
+        for (i, expect) in [(a, 0), (b, 1)] {
+            let Body::Caption(c) = &d.template.objects[i].body else {
+                unreachable!()
+            };
+            assert_eq!((c.is_value, c.t108, c.border), (expect, 0, 1));
+        }
     }
 
     #[test]
