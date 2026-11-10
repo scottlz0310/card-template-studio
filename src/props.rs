@@ -31,6 +31,12 @@ const EDITABLE_FIELDS: &[(usize, usize)] = &[
     (fmt_off::WEIGHT, 4),
     (fmt_off::TEXT_COLOR, 4),
     (fmt_off::BG_COLOR, 4),
+    (fmt_off::EFFECT, 1),
+    (fmt_off::SHADOW_DISTANCE, 2),
+    (fmt_off::OUTLINE_WIDTH, 2),
+    (fmt_off::SHADOW_ANGLE, 4),
+    (fmt_off::SHADOW_COLOR, 4),
+    (fmt_off::OUTLINE_COLOR, 4),
 ];
 
 fn section(ui: &mut egui::Ui, title: &str) {
@@ -607,6 +613,7 @@ fn font_props(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
                 f.set_flag(fmt_off::FILL, true);
             }
         });
+        effect_props(ui, &mut f);
     }
     if (face.clone(), fmt) != before {
         doc.checkpoint(Some(&key));
@@ -625,6 +632,78 @@ fn font_props(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
             if face_changed {
                 c.face = tpl::string_to_fixed(&face);
             }
+        }
+    }
+}
+
+/// 文字の効果（影付き・袋文字）。選んだ効果に効く値だけを出す
+fn effect_props(ui: &mut egui::Ui, f: &mut Fmt) {
+    ui.horizontal(|ui| {
+        ui.label("効果");
+        let mut effect = tpl::TextEffect::from_byte(f.u8(fmt_off::EFFECT));
+        for e in tpl::TextEffect::ALL {
+            if ui.selectable_value(&mut effect, e, e.label()).changed() {
+                f.set_u8(fmt_off::EFFECT, e.byte());
+            }
+        }
+    });
+    match tpl::TextEffect::from_byte(f.u8(fmt_off::EFFECT)) {
+        tpl::TextEffect::None => {}
+        tpl::TextEffect::Shadow => {
+            ui.horizontal(|ui| {
+                ui.label("影の色");
+                let mut c = f.u32(fmt_off::SHADOW_COLOR);
+                if color_button(ui, &mut c) {
+                    f.set_u32(fmt_off::SHADOW_COLOR, c);
+                }
+                let mut d = f.u16(fmt_off::SHADOW_DISTANCE);
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut d)
+                            .range(0..=60)
+                            .clamp_existing_to_range(false)
+                            .prefix("距離 "),
+                    )
+                    .changed()
+                {
+                    f.set_u16(fmt_off::SHADOW_DISTANCE, d);
+                }
+                let mut a = f.u32(fmt_off::SHADOW_ANGLE) as i32;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut a)
+                            .range(-180..=360)
+                            .clamp_existing_to_range(false)
+                            .prefix("向き ")
+                            .suffix("°"),
+                    )
+                    .on_hover_text("右を 0 度として反時計回り（90 = 上、270 = 下）")
+                    .changed()
+                {
+                    f.set_u32(fmt_off::SHADOW_ANGLE, a as u32);
+                }
+            });
+        }
+        tpl::TextEffect::Outline => {
+            ui.horizontal(|ui| {
+                ui.label("縁の色");
+                let mut c = f.u32(fmt_off::OUTLINE_COLOR);
+                if color_button(ui, &mut c) {
+                    f.set_u32(fmt_off::OUTLINE_COLOR, c);
+                }
+                let mut w = f.u16(fmt_off::OUTLINE_WIDTH);
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut w)
+                            .range(0..=60)
+                            .clamp_existing_to_range(false)
+                            .prefix("太さ "),
+                    )
+                    .changed()
+                {
+                    f.set_u16(fmt_off::OUTLINE_WIDTH, w);
+                }
+            });
         }
     }
 }
@@ -967,6 +1046,88 @@ mod tests {
         h.get_by_label("背景色").click();
         h.run();
         assert_eq!(fmt_of(&h, 0)[fmt_off::FILL], 1);
+    }
+
+    #[test]
+    fn effect_buttons_change_only_the_effect_byte_and_show_matching_controls() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        let before = fmt_of(&h, 0);
+        assert!(h.query_by_label("影の色").is_none());
+        assert!(h.query_by_label("縁の色").is_none());
+
+        h.get_by_label("影付き").click();
+        h.run();
+        let shadow = fmt_of(&h, 0);
+        assert_eq!(shadow[fmt_off::EFFECT], 1);
+        assert!(h.query_by_label("影の色").is_some());
+        assert!(h.query_by_label("縁の色").is_none());
+
+        h.get_by_label("袋文字").click();
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::EFFECT], 2);
+        assert!(h.query_by_label("縁の色").is_some());
+        assert!(h.query_by_label("影の色").is_none());
+
+        h.get_by_label("なし").click();
+        h.run();
+        // 効果を戻せば、ほかのバイトを含めて元どおり
+        assert_eq!(fmt_of(&h, 0), before);
+    }
+
+    #[test]
+    fn effect_values_are_kept_when_the_effect_is_untouched() {
+        // 実物には 0x04 が 3〜7 のものもある。触らない限り、効果欄を出しても書き換えない
+        let mut c = CaptionBody::new("a", "", false, 12);
+        c.fmt[fmt_off::EFFECT] = 5;
+        let o = Object::new(Body::Caption(c), [0.1, 0.1, 1.0, 0.4]);
+        let mut h = harness(vec![o], &[0]);
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::EFFECT], 5);
+    }
+
+    #[test]
+    fn out_of_range_effect_values_are_not_rewritten_by_just_showing_them() {
+        // 実物に範囲外の距離・太さ・向きがあっても、表示するだけで書き換えない（複数選択で他へ伝播もしない）
+        let make = |effect: u8, dist: u16, width: u16, angle: i32| {
+            let mut c = CaptionBody::new("a", "", false, 12);
+            c.fmt[fmt_off::EFFECT] = effect;
+            c.fmt[fmt_off::SHADOW_DISTANCE..fmt_off::SHADOW_DISTANCE + 2]
+                .copy_from_slice(&dist.to_le_bytes());
+            c.fmt[fmt_off::OUTLINE_WIDTH..fmt_off::OUTLINE_WIDTH + 2]
+                .copy_from_slice(&width.to_le_bytes());
+            c.fmt[fmt_off::SHADOW_ANGLE..fmt_off::SHADOW_ANGLE + 4]
+                .copy_from_slice(&angle.to_le_bytes());
+            Object::new(Body::Caption(c), [0.1, 0.1, 1.0, 0.4])
+        };
+        let cases: Vec<(&str, Vec<Object>, Vec<usize>)> = vec![
+            ("影・単独", vec![make(1, 90, 90, -270)], vec![0]),
+            ("袋文字・単独", vec![make(2, 90, 90, -270)], vec![0]),
+            (
+                "複数選択",
+                vec![make(1, 90, 3, -270), make(1, 7, 3, -45)],
+                vec![0, 1],
+            ),
+            (
+                "袋文字・複数選択",
+                vec![make(2, 1, 90, 0), make(2, 1, 5, 0)],
+                vec![0, 1],
+            ),
+        ];
+        for (name, objects, selection) in cases {
+            // harness() は作った直後に 1 フレーム描くので、前の値は描く前の部品から取る
+            let before: Vec<[u8; tpl::FMT_LEN]> = objects
+                .iter()
+                .map(|o| match &o.body {
+                    Body::Caption(c) => c.fmt,
+                    _ => unreachable!(),
+                })
+                .collect();
+            let mut h = harness(objects, &selection);
+            h.run();
+            for (i, b) in before.iter().enumerate() {
+                assert_eq!(&fmt_of(&h, i), b, "{name}: #{i}");
+            }
+        }
     }
 
     #[test]

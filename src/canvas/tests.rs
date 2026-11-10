@@ -751,3 +751,103 @@ fn picture_frames_draw_every_shape_and_border() {
     rig.frame();
     assert_eq!(rig.doc.template.objects.len(), 12);
 }
+
+#[test]
+fn shadow_offset_follows_counter_clockwise_degrees() {
+    use super::draw::shadow_offset;
+    // 実機の差分実験: 0 右 / 90 上 / 135 左上 / 270 下 / 既定の -45 は右下
+    let cases = [
+        (0, (1.0, 0.0)),
+        (90, (0.0, -1.0)),
+        (270, (0.0, 1.0)),
+        (-45, (0.707, 0.707)),
+        (135, (-0.707, -0.707)),
+    ];
+    for (angle, (x, y)) in cases {
+        let v = shadow_offset(angle, 10.0);
+        assert!((v.x - x * 10.0).abs() < 0.1, "{angle}: x={}", v.x);
+        assert!((v.y - y * 10.0).abs() < 0.1, "{angle}: y={}", v.y);
+    }
+}
+
+#[test]
+fn caption_effects_are_drawn_for_every_kind() {
+    // 効果なし・影付き・袋文字（太字・縦書き・距離 0 を含む）を描いて、落ちないこと
+    let mut objects = Vec::new();
+    for (i, effect) in tpl::TextEffect::ALL.into_iter().enumerate() {
+        for (j, (bold, vertical, size)) in
+            [(false, false, 7u16), (true, false, 0), (false, true, 30)]
+                .into_iter()
+                .enumerate()
+        {
+            let mut c = tpl::CaptionBody::new("あAbc", "", false, 18);
+            c.fmt[fmt_off::EFFECT] = effect.byte();
+            c.fmt[fmt_off::SHADOW_DISTANCE..fmt_off::SHADOW_DISTANCE + 2]
+                .copy_from_slice(&size.to_le_bytes());
+            c.fmt[fmt_off::OUTLINE_WIDTH..fmt_off::OUTLINE_WIDTH + 2]
+                .copy_from_slice(&size.to_le_bytes());
+            c.fmt[fmt_off::WEIGHT..fmt_off::WEIGHT + 4]
+                .copy_from_slice(&(if bold { 700i32 } else { 400 }).to_le_bytes());
+            c.fmt[fmt_off::HORIZONTAL] = !vertical as u8;
+            objects.push(Object::new(
+                Body::Caption(c),
+                [
+                    0.1 + j as f64 * 1.5,
+                    0.1 + i as f64 * 1.5,
+                    1.5 + j as f64 * 1.5,
+                    1.5 + i as f64 * 1.5,
+                ],
+            ));
+        }
+    }
+    let mut rig = Rig::new(objects);
+    rig.frame();
+    assert_eq!(rig.doc.template.objects.len(), 9);
+}
+
+#[test]
+fn outline_offsets_fill_the_disk_without_gaps() {
+    // (太さ px, 文字の線の太さ px)。最後は「4pt の点に 6 mm の縁」のような、文字に比べて極端に太い縁
+    let cases = [
+        (1.1f32, 3.1f32),
+        (11.0, 3.1),
+        (3.0, 0.4),
+        (22.0, 0.52),
+        (200.0, 0.52),
+    ];
+    for (w, spacing) in cases {
+        let offsets = outline_offsets(w, spacing);
+        let reach = w.min(spacing * 20.0);
+        assert!(
+            offsets.len() <= 1700,
+            "w={w}: {} 個は多すぎる",
+            offsets.len()
+        );
+        let farthest = offsets.iter().map(|o| o.length()).fold(0.0f32, f32::max);
+        assert!(
+            (farthest - reach).abs() < 1e-3,
+            "w={w}: 外側 {farthest} / {reach}"
+        );
+        // 円の内側のどの点も、元の位置（原点）か複製のどれかから、線の太さ以内にある
+        // = 隣り合う複製が重なり、元の字形から縁まで途切れない
+        let steps = 90;
+        for ri in 0..=steps {
+            for ai in 0..steps {
+                let r = reach * ri as f32 / steps as f32;
+                let a = ai as f32 / steps as f32 * std::f32::consts::TAU;
+                let p = egui::vec2(a.cos(), a.sin()) * r;
+                let nearest = offsets
+                    .iter()
+                    .map(|o| (*o - p).length())
+                    .fold(p.length(), f32::min);
+                assert!(
+                    nearest <= spacing,
+                    "w={w} spacing={spacing}: ({:.2}, {:.2}) の最寄りが {nearest:.2}",
+                    p.x,
+                    p.y
+                );
+            }
+        }
+    }
+    assert!(outline_offsets(0.0, 1.0).is_empty());
+}

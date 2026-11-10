@@ -253,6 +253,40 @@ pub(super) fn draw_object(
     }
 }
 
+/// 影のずれ。向きは右から反時計回りの度（0 右 / 90 上 / 270 下）。画面は下が正なので y を反転する
+pub(super) fn shadow_offset(angle_deg: i32, dist: f32) -> Vec2 {
+    let rad = (angle_deg as f32).to_radians();
+    vec2(rad.cos(), -rad.sin()) * dist
+}
+
+/// 袋文字の縁を作るために、文字を重ねて描くずれの一覧（半径 `w` の円の内側）。
+///
+/// 円周だけに並べると、細い文字や小さい文字では太さが増すほど元の字形と縁の間に隙間が空く。
+/// そこで、同心円状に `spacing`（文字の線の太さ程度）以下の間隔で並べ、隣り合う複製が必ず重なるようにする。
+/// 描く数が増えすぎないよう、円の数は `MAX_OUTLINE_RINGS` までで、それを超える太さは
+/// その半径までで描く（実機でも、この太さは「大きな塊」になる設定）。
+pub(super) fn outline_offsets(w: f32, spacing: f32) -> Vec<Vec2> {
+    const MAX_OUTLINE_RINGS: usize = 20;
+    const MIN_STEPS: usize = 16;
+    if w <= 0.0 || spacing <= 0.0 {
+        return Vec::new();
+    }
+    let w = w.min(spacing * MAX_OUTLINE_RINGS as f32);
+    let rings = (w / spacing).ceil().max(1.0) as usize;
+    let mut out = Vec::new();
+    for k in 1..=rings {
+        let r = w * k as f32 / rings as f32;
+        let steps = ((std::f32::consts::TAU * r / spacing).ceil() as usize).max(MIN_STEPS);
+        // 円ごとに半歩ずらして、隣の円の隙間を埋める
+        let phase = if k % 2 == 0 { 0.5 } else { 0.0 };
+        for i in 0..steps {
+            let rad = (i as f32 + phase) / steps as f32 * std::f32::consts::TAU;
+            out.push(vec2(rad.cos(), rad.sin()) * r);
+        }
+    }
+    out
+}
+
 pub(super) fn draw_caption_text(
     p: &egui::Painter,
     xf: &Xf,
@@ -291,37 +325,41 @@ pub(super) fn draw_caption_text(
     } else {
         text.to_string()
     };
-    let mut job = LayoutJob::default();
-    let tf = egui::TextFormat {
-        font_id: FontId::new(px, family),
-        color: col,
-        italics: italic,
-        underline: if underline {
-            Stroke::new((px / 14.0).max(1.0), col)
+    // 影・縁取りは文字色だけ違う同じ配置を重ねて描くので、色を引数に配置を作る
+    let layout = |col: Color32| {
+        let mut job = LayoutJob::default();
+        let tf = egui::TextFormat {
+            font_id: FontId::new(px, family.clone()),
+            color: col,
+            italics: italic,
+            underline: if underline {
+                Stroke::new((px / 14.0).max(1.0), col)
+            } else {
+                Stroke::NONE
+            },
+            strikethrough: if strike {
+                Stroke::new((px / 14.0).max(1.0), col)
+            } else {
+                Stroke::NONE
+            },
+            extra_letter_spacing: px * char_pct / 100.0,
+            line_height: Some(px * (1.0 + line_pct / 100.0) * 1.05),
+            ..Default::default()
+        };
+        job.append(&shown, 0.0, tf);
+        job.wrap.max_width = if wrap && !vertical {
+            inner.width().max(1.0)
         } else {
-            Stroke::NONE
-        },
-        strikethrough: if strike {
-            Stroke::new((px / 14.0).max(1.0), col)
-        } else {
-            Stroke::NONE
-        },
-        extra_letter_spacing: px * char_pct / 100.0,
-        line_height: Some(px * (1.0 + line_pct / 100.0) * 1.05),
-        ..Default::default()
+            f32::INFINITY
+        };
+        job.halign = match align {
+            1 => egui::Align::Center,
+            2 => egui::Align::RIGHT,
+            _ => egui::Align::LEFT,
+        };
+        clip.layout_job(job)
     };
-    job.append(&shown, 0.0, tf);
-    job.wrap.max_width = if wrap && !vertical {
-        inner.width().max(1.0)
-    } else {
-        f32::INFINITY
-    };
-    job.halign = match align {
-        1 => egui::Align::Center,
-        2 => egui::Align::RIGHT,
-        _ => egui::Align::LEFT,
-    };
-    let galley = clip.layout_job(job);
+    let galley = layout(col);
     let size = galley.size();
     let x = match (vertical, align) {
         (true, _) => inner.center().x - size.x / 2.0,
@@ -335,10 +373,32 @@ pub(super) fn draw_caption_text(
         inner.center().y - size.y / 2.0
     };
     let pos = pos2(x, y.max(inner.top() - 1.0).min(inner.bottom()));
-    clip.galley(pos, galley.clone(), col);
-    if bold {
-        clip.galley(pos + vec2((px / 28.0).max(0.6), 0.0), galley, col);
+    let paint = |at: Pos2, g: &std::sync::Arc<egui::Galley>| {
+        clip.galley(at, g.clone(), col);
+        if bold {
+            clip.galley(at + vec2((px / 28.0).max(0.6), 0.0), g.clone(), col);
+        }
+    };
+    let effect_px =
+        |units: u16| units as f32 * tpl::EFFECT_UNIT_MM as f32 / MM_PER_INCH as f32 * xf.ppi;
+    match tpl::TextEffect::from_byte(fmt[fmt_off::EFFECT]) {
+        tpl::TextEffect::None => {}
+        tpl::TextEffect::Shadow => {
+            let dist = effect_px(read_fmt_u16(fmt, fmt_off::SHADOW_DISTANCE));
+            let angle = read_fmt(fmt, fmt_off::SHADOW_ANGLE) as i32;
+            let shadow = layout(color(read_fmt(fmt, fmt_off::SHADOW_COLOR)));
+            paint(pos + shadow_offset(angle, dist), &shadow);
+        }
+        tpl::TextEffect::Outline => {
+            let w = effect_px(read_fmt_u16(fmt, fmt_off::OUTLINE_WIDTH));
+            let edge = layout(color(read_fmt(fmt, fmt_off::OUTLINE_COLOR)));
+            // 文字の線の太さ（文字の大きさの 1 割ほど）より細かい間隔で、縁の円の内側を埋める
+            for off in outline_offsets(w, (px * 0.1).max(0.4)) {
+                paint(pos + off, &edge);
+            }
+        }
     }
+    paint(pos, &galley);
 }
 
 pub(super) fn draw_passthrough(p: &egui::Painter, xf: &Xf, o: &Object, r: Rect) {
