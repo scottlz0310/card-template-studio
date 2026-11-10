@@ -275,7 +275,7 @@ fn caption_props(
     edit(
         doc,
         &format!("role-{i}"),
-        |d| caption_ref(d, i).is_value != 0,
+        |d| caption_ref(d, i).is_value_cell(),
         |d, v| caption_mut(d, i).is_value = v as i32,
         |v| {
             ui.horizontal(|ui| {
@@ -284,7 +284,7 @@ fn caption_props(
             });
         },
     );
-    let is_value = caption_ref(doc, i).is_value != 0;
+    let is_value = caption_ref(doc, i).is_value_cell();
     if !is_value {
         edit(
             doc,

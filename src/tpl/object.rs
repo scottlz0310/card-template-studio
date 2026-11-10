@@ -66,7 +66,7 @@ impl Object {
         match (&self.body, self.kind) {
             (Body::Picture(_), _) => "写真枠",
             (Body::Caption(c), _) => {
-                if c.is_value != 0 {
+                if c.is_value_cell() {
                     "項目値"
                 } else {
                     "文字"

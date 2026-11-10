@@ -59,9 +59,10 @@ pub struct CaptionBody {
     pub value: SjisString,
     /// データベースの項目名（"写真タイトル" など）
     pub field: SjisString,
-    /// +0x108（意味未確定, 0/1）
+    /// +0x108（意味未確定。0/1。`is_value` が -1 の 14 件は 14 件とも -1）
     pub t108: i32,
-    /// +0x10c: 1 = 項目値（データを表示）, 0 = 項目名（固定の文字）
+    /// +0x10c: 1 = 項目値（データを表示）, 0 = 項目名, -1 = 項目に結び付かない固定文字
+    /// （実物 563 件で、-1 は 14 件すべて `field` が空・表示文字あり。実機でも固定文字として表示。#18 / #22）
     pub is_value: i32,
     /// +0x110: 枠線あり（0x408b30, 読み込み時 0..1 に丸める）
     pub border: i32,
@@ -85,6 +86,11 @@ impl CaptionBody {
             border_inset: 0,
             border_style: Some((0, 0)),
         }
+    }
+
+    /// 項目値（データを表示する枠）か。`0`（項目名）と `-1`（固定文字）は表示文字を描く側
+    pub fn is_value_cell(&self) -> bool {
+        self.is_value == 1
     }
 }
 

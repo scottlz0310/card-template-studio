@@ -477,6 +477,41 @@ fn object_versions_and_labels() {
     assert_eq!(value.object_version(), 12);
 }
 
+/// 項目値（データの枠）は is_value = 1 だけ。0（項目名）と -1（項目に結び付かない固定文字）は
+/// 表示文字を描く側で、-1 は読んだまま保持して書き戻す（#22）。
+#[test]
+fn is_value_cell_only_for_one_and_minus_one_roundtrips() {
+    let cases = [
+        (1, true, "項目値"),
+        (0, false, "文字"),
+        (-1, false, "文字"),
+        (2, false, "文字"),
+    ];
+    for (is_value, expect_cell, label) in cases {
+        let mut c = CaptionBody::new("撮影日", "", false, 12);
+        c.is_value = is_value;
+        c.t108 = is_value.min(0);
+        let o = Object::new(Body::Caption(c), [0.0, 0.0, 1.0, 1.0]);
+        let Body::Caption(c) = &o.body else {
+            unreachable!()
+        };
+        assert_eq!(c.is_value_cell(), expect_cell, "is_value = {is_value}");
+        assert_eq!(o.kind_label(), label, "is_value = {is_value}");
+
+        let mut t = Template::default();
+        t.objects.push(o);
+        let back = Template::parse(&t.to_bytes()).unwrap();
+        let Body::Caption(b) = &back.objects[0].body else {
+            unreachable!()
+        };
+        assert_eq!(
+            (b.is_value, b.t108),
+            (is_value, is_value.min(0)),
+            "往復で保持"
+        );
+    }
+}
+
 #[test]
 fn shape_view_reads_geometry_of_passthrough_shapes() {
     let rect = passthrough(KIND_RECT, rect_shape_bytes(1), 3);
