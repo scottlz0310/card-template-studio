@@ -259,6 +259,34 @@ pub(super) fn shadow_offset(angle_deg: i32, dist: f32) -> Vec2 {
     vec2(rad.cos(), -rad.sin()) * dist
 }
 
+/// 袋文字の縁を作るために、文字を重ねて描くずれの一覧（半径 `w` の円の内側）。
+///
+/// 円周だけに並べると、細い文字や小さい文字では太さが増すほど元の字形と縁の間に隙間が空く。
+/// そこで、同心円状に `spacing`（文字の線の太さ程度）以下の間隔で並べ、隣り合う複製が必ず重なるようにする。
+/// 描く数が増えすぎないよう、円の数は `MAX_OUTLINE_RINGS` までで、それを超える太さは
+/// その半径までで描く（実機でも、この太さは「大きな塊」になる設定）。
+pub(super) fn outline_offsets(w: f32, spacing: f32) -> Vec<Vec2> {
+    const MAX_OUTLINE_RINGS: usize = 20;
+    const MIN_STEPS: usize = 16;
+    if w <= 0.0 || spacing <= 0.0 {
+        return Vec::new();
+    }
+    let w = w.min(spacing * MAX_OUTLINE_RINGS as f32);
+    let rings = (w / spacing).ceil().max(1.0) as usize;
+    let mut out = Vec::new();
+    for k in 1..=rings {
+        let r = w * k as f32 / rings as f32;
+        let steps = ((std::f32::consts::TAU * r / spacing).ceil() as usize).max(MIN_STEPS);
+        // 円ごとに半歩ずらして、隣の円の隙間を埋める
+        let phase = if k % 2 == 0 { 0.5 } else { 0.0 };
+        for i in 0..steps {
+            let rad = (i as f32 + phase) / steps as f32 * std::f32::consts::TAU;
+            out.push(vec2(rad.cos(), rad.sin()) * r);
+        }
+    }
+    out
+}
+
 pub(super) fn draw_caption_text(
     p: &egui::Painter,
     xf: &Xf,
@@ -364,10 +392,9 @@ pub(super) fn draw_caption_text(
         tpl::TextEffect::Outline => {
             let w = effect_px(read_fmt_u16(fmt, fmt_off::OUTLINE_WIDTH));
             let edge = layout(color(read_fmt(fmt, fmt_off::OUTLINE_COLOR)));
-            const STEPS: usize = 16;
-            for k in 0..STEPS {
-                let rad = k as f32 / STEPS as f32 * std::f32::consts::TAU;
-                paint(pos + vec2(rad.cos(), rad.sin()) * w, &edge);
+            // 文字の線の太さ（文字の大きさの 1 割ほど）より細かい間隔で、縁の円の内側を埋める
+            for off in outline_offsets(w, (px * 0.1).max(0.4)) {
+                paint(pos + off, &edge);
             }
         }
     }

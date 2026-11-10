@@ -804,3 +804,50 @@ fn caption_effects_are_drawn_for_every_kind() {
     rig.frame();
     assert_eq!(rig.doc.template.objects.len(), 9);
 }
+
+#[test]
+fn outline_offsets_fill_the_disk_without_gaps() {
+    // (太さ px, 文字の線の太さ px)。最後は「4pt の点に 6 mm の縁」のような、文字に比べて極端に太い縁
+    let cases = [
+        (1.1f32, 3.1f32),
+        (11.0, 3.1),
+        (3.0, 0.4),
+        (22.0, 0.52),
+        (200.0, 0.52),
+    ];
+    for (w, spacing) in cases {
+        let offsets = outline_offsets(w, spacing);
+        let reach = w.min(spacing * 20.0);
+        assert!(
+            offsets.len() <= 1700,
+            "w={w}: {} 個は多すぎる",
+            offsets.len()
+        );
+        let farthest = offsets.iter().map(|o| o.length()).fold(0.0f32, f32::max);
+        assert!(
+            (farthest - reach).abs() < 1e-3,
+            "w={w}: 外側 {farthest} / {reach}"
+        );
+        // 円の内側のどの点も、元の位置（原点）か複製のどれかから、線の太さ以内にある
+        // = 隣り合う複製が重なり、元の字形から縁まで途切れない
+        let steps = 90;
+        for ri in 0..=steps {
+            for ai in 0..steps {
+                let r = reach * ri as f32 / steps as f32;
+                let a = ai as f32 / steps as f32 * std::f32::consts::TAU;
+                let p = egui::vec2(a.cos(), a.sin()) * r;
+                let nearest = offsets
+                    .iter()
+                    .map(|o| (*o - p).length())
+                    .fold(p.length(), f32::min);
+                assert!(
+                    nearest <= spacing,
+                    "w={w} spacing={spacing}: ({:.2}, {:.2}) の最寄りが {nearest:.2}",
+                    p.x,
+                    p.y
+                );
+            }
+        }
+    }
+    assert!(outline_offsets(0.0, 1.0).is_empty());
+}

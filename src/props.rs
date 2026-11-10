@@ -658,7 +658,12 @@ fn effect_props(ui: &mut egui::Ui, f: &mut Fmt) {
                 }
                 let mut d = f.u16(fmt_off::SHADOW_DISTANCE);
                 if ui
-                    .add(egui::DragValue::new(&mut d).range(0..=60).prefix("距離 "))
+                    .add(
+                        egui::DragValue::new(&mut d)
+                            .range(0..=60)
+                            .clamp_existing_to_range(false)
+                            .prefix("距離 "),
+                    )
                     .changed()
                 {
                     f.set_u16(fmt_off::SHADOW_DISTANCE, d);
@@ -668,6 +673,7 @@ fn effect_props(ui: &mut egui::Ui, f: &mut Fmt) {
                     .add(
                         egui::DragValue::new(&mut a)
                             .range(-180..=360)
+                            .clamp_existing_to_range(false)
                             .prefix("向き ")
                             .suffix("°"),
                     )
@@ -687,7 +693,12 @@ fn effect_props(ui: &mut egui::Ui, f: &mut Fmt) {
                 }
                 let mut w = f.u16(fmt_off::OUTLINE_WIDTH);
                 if ui
-                    .add(egui::DragValue::new(&mut w).range(0..=60).prefix("太さ "))
+                    .add(
+                        egui::DragValue::new(&mut w)
+                            .range(0..=60)
+                            .clamp_existing_to_range(false)
+                            .prefix("太さ "),
+                    )
                     .changed()
                 {
                     f.set_u16(fmt_off::OUTLINE_WIDTH, w);
@@ -1072,6 +1083,51 @@ mod tests {
         let mut h = harness(vec![o], &[0]);
         h.run();
         assert_eq!(fmt_of(&h, 0)[fmt_off::EFFECT], 5);
+    }
+
+    #[test]
+    fn out_of_range_effect_values_are_not_rewritten_by_just_showing_them() {
+        // 実物に範囲外の距離・太さ・向きがあっても、表示するだけで書き換えない（複数選択で他へ伝播もしない）
+        let make = |effect: u8, dist: u16, width: u16, angle: i32| {
+            let mut c = CaptionBody::new("a", "", false, 12);
+            c.fmt[fmt_off::EFFECT] = effect;
+            c.fmt[fmt_off::SHADOW_DISTANCE..fmt_off::SHADOW_DISTANCE + 2]
+                .copy_from_slice(&dist.to_le_bytes());
+            c.fmt[fmt_off::OUTLINE_WIDTH..fmt_off::OUTLINE_WIDTH + 2]
+                .copy_from_slice(&width.to_le_bytes());
+            c.fmt[fmt_off::SHADOW_ANGLE..fmt_off::SHADOW_ANGLE + 4]
+                .copy_from_slice(&angle.to_le_bytes());
+            Object::new(Body::Caption(c), [0.1, 0.1, 1.0, 0.4])
+        };
+        let cases: Vec<(&str, Vec<Object>, Vec<usize>)> = vec![
+            ("影・単独", vec![make(1, 90, 90, -270)], vec![0]),
+            ("袋文字・単独", vec![make(2, 90, 90, -270)], vec![0]),
+            (
+                "複数選択",
+                vec![make(1, 90, 3, -270), make(1, 7, 3, -45)],
+                vec![0, 1],
+            ),
+            (
+                "袋文字・複数選択",
+                vec![make(2, 1, 90, 0), make(2, 1, 5, 0)],
+                vec![0, 1],
+            ),
+        ];
+        for (name, objects, selection) in cases {
+            // harness() は作った直後に 1 フレーム描くので、前の値は描く前の部品から取る
+            let before: Vec<[u8; tpl::FMT_LEN]> = objects
+                .iter()
+                .map(|o| match &o.body {
+                    Body::Caption(c) => c.fmt,
+                    _ => unreachable!(),
+                })
+                .collect();
+            let mut h = harness(objects, &selection);
+            h.run();
+            for (i, b) in before.iter().enumerate() {
+                assert_eq!(&fmt_of(&h, i), b, "{name}: #{i}");
+            }
+        }
     }
 
     #[test]
