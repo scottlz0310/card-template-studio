@@ -222,6 +222,11 @@ impl Document {
         rect: [f64; 4],
     ) -> usize {
         self.checkpoint(None);
+        self.push_caption(text, field, is_value, rect)
+    }
+
+    /// 「元に戻す」の段を積まずに文字項目を追加する（複数の部品を 1 段にまとめる呼び出し元が、先に 1 回だけ積む）
+    fn push_caption(&mut self, text: &str, field: &str, is_value: bool, rect: [f64; 4]) -> usize {
         let template_caption = self.template.objects.iter().find_map(|o| match &o.body {
             Body::Caption(c) if c.is_value == is_value as i32 && o.tag_version == 2 => {
                 Some(c.clone())
@@ -253,15 +258,15 @@ impl Document {
         h: f64,
     ) -> (usize, usize) {
         let (x, y) = origin;
-        let a = self.add_caption(field, field, false, [x, y, x + label_w, y + h]);
-        self.coalesce = Some("add-row".into());
-        let b = self.add_caption(
+        // 名前と値は「元に戻す」1 回で行ごと戻す
+        self.checkpoint(None);
+        let a = self.push_caption(field, field, false, [x, y, x + label_w, y + h]);
+        let b = self.push_caption(
             "",
             field,
             true,
             [x + label_w, y, x + label_w + value_w, y + h],
         );
-        self.coalesce = None;
         (a, b)
     }
 
@@ -967,12 +972,12 @@ mod tests {
         assert_eq!(d.template.objects[0].rect, [1.0, 1.0, 1.5, 1.25]);
         assert_eq!(d.template.objects[1].rect, [1.5, 1.0, 3.0, 1.25]);
         assert_eq!(d.selection, [1].into());
-        // 現状の挙動の固定: 名前と値は「元に戻す」2 段になる（1 段にまとめる意図の
-        // coalesce 印は、checkpoint(None) が見ないため効いていない）
-        d.undo();
-        assert_eq!(d.template.objects.len(), 1);
+        // 名前と値は「元に戻す」1 回で行ごと戻る
         d.undo();
         assert!(d.template.objects.is_empty());
+        assert!(!d.can_undo());
+        d.redo();
+        assert_eq!(d.template.objects.len(), 2);
     }
 
     #[test]
