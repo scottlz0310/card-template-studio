@@ -28,6 +28,8 @@ coverage:
     - "build.rs"
     # OS のネイティブダイアログ（rfd）を呼ぶだけの境界。テストでは FakeDialogs に差し替える
     - "src/app/dialogs.rs"
+    # 実物のサンプルが要る手動実行専用の集計（#[ignore]）。通常の CI では走らない
+    - "src/tpl/survey.rs"
 
 comment:
   layout: "reach,diff,flags,tree"

@@ -14,8 +14,11 @@
 - アプリアイコン案（`assets/icon.png`, `icon.ico`）および `winres` による Windows リソース埋め込み。
 - 主要モジュール分割（#6）の前段として、現状の挙動を固定するテストを 17 件から 176 件に拡充。画面操作のテストには `egui_kittest`（dev-dependency）と、ウィンドウを使わない入力シミュレータを使う。
 
+- 実物の TMPEXP の値の分布を集計する調査用テスト `survey_real_samples`（`#[ignore]`、`CARD_TPL_SAMPLES` 指定時に手動実行。#18）。
+
 ### Changed
 
+- Codecov の集計対象から、手動実行専用の集計テスト `src/tpl/survey.rs` を除外。
 - Codecov の集計対象から、OS のネイティブダイアログを呼ぶだけの `src/app/dialogs.rs` を除外（`src/main.rs` と同じ扱い）。
 - ファイル・フォルダ選択と上書き確認のダイアログを `Dialogs` trait 越しにし（本体の実装は `rfd` を呼ぶ `NativeDialogs` に集約）、テストでは差し替えられるようにした（#6）。挙動は変わらない。
 - `src/app.rs` を責務ごとのサブモジュール（`files` / `shortcuts` / `menu` / `panels` / `modals` / `screenshot`）に分割（#6）。挙動は変わらない。
