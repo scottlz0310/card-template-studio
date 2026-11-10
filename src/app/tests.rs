@@ -597,6 +597,26 @@ fn open_menu(h: &mut H, menu: &str, item: &str) {
 }
 
 #[test]
+fn ctrl_enter_and_the_edit_menu_add_a_row_below() {
+    let mut h = harness();
+    let before = app(&mut h).doc.template.objects.len();
+    // 何も選んでいないときは何も起きない
+    app(&mut h).doc.selection.clear();
+    press(&mut h, Modifiers::COMMAND, Key::Enter);
+    assert_eq!(app(&mut h).doc.template.objects.len(), before);
+    // 見本の最初の行（項目名 = #2）を 1 つ選ぶと、その行ぜんぶ（項目名と項目値）の下に足される
+    app(&mut h).doc.selection = [1].into();
+    press(&mut h, Modifiers::COMMAND, Key::Enter);
+    assert_eq!(app(&mut h).doc.template.objects.len(), before + 2);
+    assert_eq!(selected_count(&mut h), 2);
+    // メニューからも同じ。1 回で元に戻る
+    open_menu(&mut h, "編集", "下に行を追加");
+    assert_eq!(app(&mut h).doc.template.objects.len(), before + 4);
+    press(&mut h, Modifiers::COMMAND, Key::Z);
+    assert_eq!(app(&mut h).doc.template.objects.len(), before + 2);
+}
+
+#[test]
 fn edit_menu_commands() {
     let mut h = harness();
     open_menu(&mut h, "編集", "すべて選択");

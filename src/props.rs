@@ -264,7 +264,10 @@ fn object_props(ui: &mut egui::Ui, doc: &mut Document, i: usize, focus_text: &mu
         .filter(|o| o.kind == tpl::KIND_PICTURE)
         .count() as u32;
     match &doc.template.objects[i].body {
-        Body::Caption(_) => caption_props(ui, doc, i, pictures, focus_text),
+        Body::Caption(_) => {
+            caption_props(ui, doc, i, pictures, focus_text);
+            add_row_button(ui, doc);
+        }
         Body::Picture(_) => picture_props(ui, doc, i),
         Body::CmValue(_) => {
             section(ui, "施工管理値");
@@ -746,6 +749,18 @@ fn effect_props(ui: &mut egui::Ui, f: &mut Fmt) {
     }
 }
 
+/// 選んでいる行の真下に、同じ形の行を足すボタン（表組を 1 行ずつ伸ばす）
+fn add_row_button(ui: &mut egui::Ui, doc: &mut Document) {
+    section(ui, "表組");
+    if ui
+        .button("この行の下に行を追加")
+        .on_hover_text("同じ幅・高さ・書式の行を真下に足し、項目を標準の並び（工種 → 種別 → 細別 → 写真タイトル → 撮影箇所 → 撮影年月日）で次に進めます（Ctrl+Enter）")
+        .clicked()
+    {
+        doc.add_row_below();
+    }
+}
+
 fn multi_caption_props(ui: &mut egui::Ui, doc: &mut Document) {
     let sel: Vec<usize> = doc.selected_editable();
     if sel
@@ -754,6 +769,7 @@ fn multi_caption_props(ui: &mut egui::Ui, doc: &mut Document) {
     {
         section(ui, "文字（まとめて変更）");
         font_props(ui, doc, &sel);
+        add_row_button(ui, doc);
     }
 }
 
@@ -1012,6 +1028,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn add_row_button_adds_the_whole_row_below_the_selected_caption() {
+        let label = Object::new(
+            Body::Caption(CaptionBody::new("工種", "工種", false, 12)),
+            [0.1, 0.5, 0.6, 0.75],
+        );
+        let value = Object::new(
+            Body::Caption(CaptionBody::new("", "工種", true, 12)),
+            [0.6, 0.5, 2.0, 0.75],
+        );
+        let mut h = harness(vec![label, value], &[0]);
+        h.get_by_label("この行の下に行を追加").click();
+        h.run();
+        assert_eq!(h.state().doc.template.objects.len(), 4);
+        assert_eq!(caption_body(&h, 2).field.to_string_lossy(), "種別");
+        assert_eq!(caption_body(&h, 3).field.to_string_lossy(), "種別");
+        // 複数選択のパネルにもある
+        let mut h = harness(
+            vec![caption("a", "", false, 0.1), caption("b", "", false, 2.0)],
+            &[0, 1],
+        );
+        h.get_by_label("この行の下に行を追加").click();
+        h.run();
+        assert_eq!(h.state().doc.template.objects.len(), 4);
+    }
     #[test]
     fn border_toggle_and_width_edit_caption() {
         let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
