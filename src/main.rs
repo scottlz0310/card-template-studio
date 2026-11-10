@@ -79,8 +79,10 @@ fn install_fonts(ctx: &egui::Context) {
         None
     };
     // ＭＳ ゴシック・ＭＳ 明朝（msgothic.ttc / msmincho.ttc）は egui の描画で字形が出ないため、
-    // 画面表示だけ游ゴシック・游明朝で代用する（TPL に保存するフォント名は変えない）
+    // 画面表示だけ游ゴシック・游明朝で代用する（TPL に保存するフォント名は変えない）。
+    // メイリオは字形が出るので、そのまま使う（本体の既定のフォント）
     let faces = [
+        ("meiryo", "meiryo.ttc", 0),
         ("pgothic", "YuGothM.ttc", 0),
         ("gothic", "YuGothM.ttc", 0),
         ("pmincho", "yumin.ttf", 0),
@@ -101,7 +103,7 @@ fn install_fonts(ctx: &egui::Context) {
                 .insert(0, ui.to_owned());
         }
     }
-    for key in ["pgothic", "gothic", "pmincho", "mincho"] {
+    for key in ["meiryo", "pgothic", "gothic", "pmincho", "mincho"] {
         let mut list = Vec::new();
         if loaded.contains(&key) {
             list.push(key.to_owned());

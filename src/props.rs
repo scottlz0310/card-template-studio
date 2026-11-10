@@ -7,6 +7,9 @@ use crate::tpl::{self, Body, Fmt, MM_PER_INCH, SjisString, fmt_off};
 use egui::{Color32, RichText};
 
 pub const FACES: &[&str] = &[
+    "メイリオ",
+    "游ゴシック",
+    "游明朝",
     "ＭＳ Ｐゴシック",
     "ＭＳ ゴシック",
     "ＭＳ Ｐ明朝",
@@ -844,6 +847,13 @@ mod tests {
             (tpl::PictureBorder::Medium, 0x4080ff)
         );
     }
+    #[test]
+    fn default_face_is_offered_in_the_font_list() {
+        assert!(FACES.contains(&tpl::DEFAULT_FACE));
+        // 游ゴシック・游明朝も選べる（どちらもこのアプリは画面でそのまま描ける）
+        assert!(FACES.contains(&"游ゴシック") && FACES.contains(&"游明朝"));
+    }
+
     #[test]
     fn picture_number_counts_from_first_picture() {
         let h = harness(vec![picture(0.1), picture(2.0)], &[1]);
