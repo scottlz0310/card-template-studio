@@ -31,6 +31,12 @@ const EDITABLE_FIELDS: &[(usize, usize)] = &[
     (fmt_off::WEIGHT, 4),
     (fmt_off::TEXT_COLOR, 4),
     (fmt_off::BG_COLOR, 4),
+    (fmt_off::EFFECT, 1),
+    (fmt_off::SHADOW_DISTANCE, 2),
+    (fmt_off::OUTLINE_WIDTH, 2),
+    (fmt_off::SHADOW_ANGLE, 4),
+    (fmt_off::SHADOW_COLOR, 4),
+    (fmt_off::OUTLINE_COLOR, 4),
 ];
 
 fn section(ui: &mut egui::Ui, title: &str) {
@@ -607,6 +613,7 @@ fn font_props(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
                 f.set_flag(fmt_off::FILL, true);
             }
         });
+        effect_props(ui, &mut f);
     }
     if (face.clone(), fmt) != before {
         doc.checkpoint(Some(&key));
@@ -625,6 +632,67 @@ fn font_props(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
             if face_changed {
                 c.face = tpl::string_to_fixed(&face);
             }
+        }
+    }
+}
+
+/// 文字の効果（影付き・袋文字）。選んだ効果に効く値だけを出す
+fn effect_props(ui: &mut egui::Ui, f: &mut Fmt) {
+    ui.horizontal(|ui| {
+        ui.label("効果");
+        let mut effect = tpl::TextEffect::from_byte(f.u8(fmt_off::EFFECT));
+        for e in tpl::TextEffect::ALL {
+            if ui.selectable_value(&mut effect, e, e.label()).changed() {
+                f.set_u8(fmt_off::EFFECT, e.byte());
+            }
+        }
+    });
+    match tpl::TextEffect::from_byte(f.u8(fmt_off::EFFECT)) {
+        tpl::TextEffect::None => {}
+        tpl::TextEffect::Shadow => {
+            ui.horizontal(|ui| {
+                ui.label("影の色");
+                let mut c = f.u32(fmt_off::SHADOW_COLOR);
+                if color_button(ui, &mut c) {
+                    f.set_u32(fmt_off::SHADOW_COLOR, c);
+                }
+                let mut d = f.u16(fmt_off::SHADOW_DISTANCE);
+                if ui
+                    .add(egui::DragValue::new(&mut d).range(0..=60).prefix("距離 "))
+                    .changed()
+                {
+                    f.set_u16(fmt_off::SHADOW_DISTANCE, d);
+                }
+                let mut a = f.u32(fmt_off::SHADOW_ANGLE) as i32;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut a)
+                            .range(-180..=360)
+                            .prefix("向き ")
+                            .suffix("°"),
+                    )
+                    .on_hover_text("右を 0 度として反時計回り（90 = 上、270 = 下）")
+                    .changed()
+                {
+                    f.set_u32(fmt_off::SHADOW_ANGLE, a as u32);
+                }
+            });
+        }
+        tpl::TextEffect::Outline => {
+            ui.horizontal(|ui| {
+                ui.label("縁の色");
+                let mut c = f.u32(fmt_off::OUTLINE_COLOR);
+                if color_button(ui, &mut c) {
+                    f.set_u32(fmt_off::OUTLINE_COLOR, c);
+                }
+                let mut w = f.u16(fmt_off::OUTLINE_WIDTH);
+                if ui
+                    .add(egui::DragValue::new(&mut w).range(0..=60).prefix("太さ "))
+                    .changed()
+                {
+                    f.set_u16(fmt_off::OUTLINE_WIDTH, w);
+                }
+            });
         }
     }
 }
@@ -967,6 +1035,43 @@ mod tests {
         h.get_by_label("背景色").click();
         h.run();
         assert_eq!(fmt_of(&h, 0)[fmt_off::FILL], 1);
+    }
+
+    #[test]
+    fn effect_buttons_change_only_the_effect_byte_and_show_matching_controls() {
+        let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
+        let before = fmt_of(&h, 0);
+        assert!(h.query_by_label("影の色").is_none());
+        assert!(h.query_by_label("縁の色").is_none());
+
+        h.get_by_label("影付き").click();
+        h.run();
+        let shadow = fmt_of(&h, 0);
+        assert_eq!(shadow[fmt_off::EFFECT], 1);
+        assert!(h.query_by_label("影の色").is_some());
+        assert!(h.query_by_label("縁の色").is_none());
+
+        h.get_by_label("袋文字").click();
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::EFFECT], 2);
+        assert!(h.query_by_label("縁の色").is_some());
+        assert!(h.query_by_label("影の色").is_none());
+
+        h.get_by_label("なし").click();
+        h.run();
+        // 効果を戻せば、ほかのバイトを含めて元どおり
+        assert_eq!(fmt_of(&h, 0), before);
+    }
+
+    #[test]
+    fn effect_values_are_kept_when_the_effect_is_untouched() {
+        // 実物には 0x04 が 3〜7 のものもある。触らない限り、効果欄を出しても書き換えない
+        let mut c = CaptionBody::new("a", "", false, 12);
+        c.fmt[fmt_off::EFFECT] = 5;
+        let o = Object::new(Body::Caption(c), [0.1, 0.1, 1.0, 0.4]);
+        let mut h = harness(vec![o], &[0]);
+        h.run();
+        assert_eq!(fmt_of(&h, 0)[fmt_off::EFFECT], 5);
     }
 
     #[test]

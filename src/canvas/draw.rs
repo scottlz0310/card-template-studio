@@ -253,6 +253,12 @@ pub(super) fn draw_object(
     }
 }
 
+/// 影のずれ。向きは右から反時計回りの度（0 右 / 90 上 / 270 下）。画面は下が正なので y を反転する
+pub(super) fn shadow_offset(angle_deg: i32, dist: f32) -> Vec2 {
+    let rad = (angle_deg as f32).to_radians();
+    vec2(rad.cos(), -rad.sin()) * dist
+}
+
 pub(super) fn draw_caption_text(
     p: &egui::Painter,
     xf: &Xf,
@@ -291,37 +297,41 @@ pub(super) fn draw_caption_text(
     } else {
         text.to_string()
     };
-    let mut job = LayoutJob::default();
-    let tf = egui::TextFormat {
-        font_id: FontId::new(px, family),
-        color: col,
-        italics: italic,
-        underline: if underline {
-            Stroke::new((px / 14.0).max(1.0), col)
+    // 影・縁取りは文字色だけ違う同じ配置を重ねて描くので、色を引数に配置を作る
+    let layout = |col: Color32| {
+        let mut job = LayoutJob::default();
+        let tf = egui::TextFormat {
+            font_id: FontId::new(px, family.clone()),
+            color: col,
+            italics: italic,
+            underline: if underline {
+                Stroke::new((px / 14.0).max(1.0), col)
+            } else {
+                Stroke::NONE
+            },
+            strikethrough: if strike {
+                Stroke::new((px / 14.0).max(1.0), col)
+            } else {
+                Stroke::NONE
+            },
+            extra_letter_spacing: px * char_pct / 100.0,
+            line_height: Some(px * (1.0 + line_pct / 100.0) * 1.05),
+            ..Default::default()
+        };
+        job.append(&shown, 0.0, tf);
+        job.wrap.max_width = if wrap && !vertical {
+            inner.width().max(1.0)
         } else {
-            Stroke::NONE
-        },
-        strikethrough: if strike {
-            Stroke::new((px / 14.0).max(1.0), col)
-        } else {
-            Stroke::NONE
-        },
-        extra_letter_spacing: px * char_pct / 100.0,
-        line_height: Some(px * (1.0 + line_pct / 100.0) * 1.05),
-        ..Default::default()
+            f32::INFINITY
+        };
+        job.halign = match align {
+            1 => egui::Align::Center,
+            2 => egui::Align::RIGHT,
+            _ => egui::Align::LEFT,
+        };
+        clip.layout_job(job)
     };
-    job.append(&shown, 0.0, tf);
-    job.wrap.max_width = if wrap && !vertical {
-        inner.width().max(1.0)
-    } else {
-        f32::INFINITY
-    };
-    job.halign = match align {
-        1 => egui::Align::Center,
-        2 => egui::Align::RIGHT,
-        _ => egui::Align::LEFT,
-    };
-    let galley = clip.layout_job(job);
+    let galley = layout(col);
     let size = galley.size();
     let x = match (vertical, align) {
         (true, _) => inner.center().x - size.x / 2.0,
@@ -335,10 +345,33 @@ pub(super) fn draw_caption_text(
         inner.center().y - size.y / 2.0
     };
     let pos = pos2(x, y.max(inner.top() - 1.0).min(inner.bottom()));
-    clip.galley(pos, galley.clone(), col);
-    if bold {
-        clip.galley(pos + vec2((px / 28.0).max(0.6), 0.0), galley, col);
+    let paint = |at: Pos2, g: &std::sync::Arc<egui::Galley>| {
+        clip.galley(at, g.clone(), col);
+        if bold {
+            clip.galley(at + vec2((px / 28.0).max(0.6), 0.0), g.clone(), col);
+        }
+    };
+    let effect_px =
+        |units: u16| units as f32 * tpl::EFFECT_UNIT_MM as f32 / MM_PER_INCH as f32 * xf.ppi;
+    match tpl::TextEffect::from_byte(fmt[fmt_off::EFFECT]) {
+        tpl::TextEffect::None => {}
+        tpl::TextEffect::Shadow => {
+            let dist = effect_px(read_fmt_u16(fmt, fmt_off::SHADOW_DISTANCE));
+            let angle = read_fmt(fmt, fmt_off::SHADOW_ANGLE) as i32;
+            let shadow = layout(color(read_fmt(fmt, fmt_off::SHADOW_COLOR)));
+            paint(pos + shadow_offset(angle, dist), &shadow);
+        }
+        tpl::TextEffect::Outline => {
+            let w = effect_px(read_fmt_u16(fmt, fmt_off::OUTLINE_WIDTH));
+            let edge = layout(color(read_fmt(fmt, fmt_off::OUTLINE_COLOR)));
+            const STEPS: usize = 16;
+            for k in 0..STEPS {
+                let rad = k as f32 / STEPS as f32 * std::f32::consts::TAU;
+                paint(pos + vec2(rad.cos(), rad.sin()) * w, &edge);
+            }
+        }
     }
+    paint(pos, &galley);
 }
 
 pub(super) fn draw_passthrough(p: &egui::Painter, xf: &Xf, o: &Object, r: Rect) {

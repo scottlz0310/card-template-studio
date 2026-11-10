@@ -17,7 +17,53 @@ pub mod fmt_off {
     pub const WEIGHT: usize = 0x14; // i32 太さ（400 標準 / 700 太字）
     pub const TEXT_COLOR: usize = 0x1c; // COLORREF
     pub const BG_COLOR: usize = 0x28; // COLORREF
+    pub const EFFECT: usize = 0x04; // 0 なし / 1 影付き / 2 袋文字（実機の差分実験、#18）
+    pub const SHADOW_DISTANCE: usize = 0x0a; // u16 影の距離
+    pub const OUTLINE_WIDTH: usize = 0x0c; // u16 袋文字の太さ
+    pub const SHADOW_ANGLE: usize = 0x18; // i32 影の向き（度、右から反時計回り）
+    pub const SHADOW_COLOR: usize = 0x20; // COLORREF
+    pub const OUTLINE_COLOR: usize = 0x24; // COLORREF
 }
+
+/// 文字の効果（書式 +0x04）。3〜7 は本体が効果なしとして描く
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextEffect {
+    None,
+    Shadow,
+    Outline,
+}
+
+impl TextEffect {
+    pub const ALL: [Self; 3] = [Self::None, Self::Shadow, Self::Outline];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "なし",
+            Self::Shadow => "影付き",
+            Self::Outline => "袋文字",
+        }
+    }
+
+    pub fn from_byte(b: u8) -> Self {
+        match b {
+            1 => Self::Shadow,
+            2 => Self::Outline,
+            _ => Self::None,
+        }
+    }
+
+    pub fn byte(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Shadow => 1,
+            Self::Outline => 2,
+        }
+    }
+}
+
+/// 影の距離と袋文字の太さの 1 単位（mm）。実機で、既定（影 7・袋文字 3）が文字の脇に出る大きさ、
+/// 30 が大きく離れる・太る大きさだったことからの推定（単位そのものは本体のコードで未確認）
+pub const EFFECT_UNIT_MM: f64 = 0.1;
 
 /// 0x407310 の既定値（文字サイズは引数）
 pub fn default_format(size_pt: u16) -> [u8; FMT_LEN] {
