@@ -189,23 +189,38 @@ impl CaptionBody {
     }
 }
 
-/// 施工管理値（種類 5, CCMValueObject 0x40f8a0）
+/// 施工管理値（種類 5, CCMValueObject 0x40f8a0）。各項目の意味は実機の「施工管理値の貼り付け」
+/// ダイアログを 1 か所ずつ変えて確定した（#18、`docs/MECHANICS.md` の「施工管理値」）
 #[derive(Clone, Debug, PartialEq)]
 pub struct CmValueBody {
     pub text: SjisString,
+    /// 意味未確定。実物 41 件ではすべて 0
     pub c0: u32,
-    pub c4: u32,
-    pub x138: u32,
-    pub x13c: u32,
-    pub x148: u32,
+    /// 表示個数（1〜5。実物では 1〜5）
+    pub count: u32,
+    /// 設計値の文字色（COLORREF。既定 0xff0000 = 青）
+    pub design_color: u32,
+    /// 実測値の文字色（COLORREF。既定 0x0000ff = 赤）
+    pub actual_color: u32,
+    /// 枠線の色（COLORREF。既定 0 = 黒）
+    pub border_color: u32,
+    /// 項目名・値のフォント。項目名の色は書式の +0x1c、背景色は +0x28、背景色を付けるかは +0x07
     pub face: [u8; 32],
     pub fmt: [u8; FMT_LEN],
-    pub x140: u32,
-    pub x154: u32,
-    pub x150: u32,
-    pub x14c: u32,
+    /// 表示形式: 0 = 項目ごとに表示, 1 = 項目を横に並べる, 2 = 項目を縦に並べる
+    pub layout: u32,
+    /// 項目名表示: 0 = 項目名のみ, 1 = 記号のみ, 2 = 項目名[記号]
+    pub name_style: u32,
+    /// 枠を付ける（0 / 1）
+    pub has_border: u32,
+    /// 枠線の太さ: 0 = 細線, 1 = 中太線, 2 = 太線
+    pub border_weight: u32,
+    /// 意味未確定。ダイアログに無く、実物 41 件ではすべて 0
     pub x144: u32,
-    /// 版 11 以上: +0x15c, +0x160, 行（各 68 バイト: u32 + 32 + 32）
+    /// 版 11 以上（OBJ2）のときだけ保存される。
+    /// +0x15c = 差を表示する（0 / 1）、+0x160 = 項目文字揃え（0 左 / 1 中央。右は 2 と推定）、
+    /// 続いて「差の入力」の行（各 68 バイト: u32 + 32 + 32。意味未確定）。
+    /// 無いとき（OBJ1）は、差を表示しない・左揃えとして扱われる（実機）
     pub ext: Option<(u32, u32, Vec<[u8; 68]>)>,
 }
 
