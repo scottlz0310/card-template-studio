@@ -1,7 +1,7 @@
 //! 操作中の状態と、呼び出し側へ返す操作。
 
 use super::geometry::Handle;
-use super::tool::Tool;
+use super::tool::{TableSpec, Tool};
 
 /// ドラッグ中の操作。座標はインチ（`Pan` だけは画面の px）
 pub(super) enum Drag {
@@ -35,6 +35,8 @@ pub struct CanvasState {
     /// ダブルクリックで文字欄を編集したい合図（プロパティ欄が拾う）
     pub focus_text: bool,
     pub status: Option<String>,
+    /// 表組ツールで置く内容（「表組の挿入」で決める）
+    pub table: TableSpec,
 }
 
 pub enum CanvasAction {

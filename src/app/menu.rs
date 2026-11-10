@@ -114,6 +114,9 @@ impl StudioApp {
                 {
                     self.doc.add_row_below();
                 }
+                if ui.button("表組の挿入…").clicked() {
+                    self.open_insert_table();
+                }
                 if ui
                     .add_enabled(any, egui::Button::new("削除").shortcut_text("Delete"))
                     .clicked()
@@ -248,6 +251,22 @@ impl StudioApp {
                     self.tool = t;
                 }
             }
+            let table_on = self.tool == Tool::Table;
+            let text = RichText::new("▦ 表組…").color(if table_on {
+                Color32::WHITE
+            } else {
+                ui.visuals().text_color()
+            });
+            let b = egui::Button::new(text)
+                .fill(if table_on { ACCENT } else { Color32::TRANSPARENT })
+                .corner_radius(6.0);
+            if ui
+                .add(b)
+                .on_hover_text("行数と項目を決めて、カード上をドラッグして表組を置きます")
+                .clicked()
+            {
+                self.open_insert_table();
+            }
             ui.separator();
             if ui.add_enabled(self.doc.can_undo(), egui::Button::new("↶ 元に戻す")).clicked() {
                 self.doc.undo();
@@ -292,6 +311,7 @@ const HELP: &str = "■ 本体との受け渡し
 ・部品はドラッグで移動、四隅と辺の□で大きさを変えます。Shift で縦横に固定、Alt を押しながらで複製。
 ・ピンクの線は、ほかの部品やカードの端・中央にそろったことを示します。
 ・行（項目名と項目値）を選んで Ctrl+Enter（編集メニューの「下に行を追加」）で、同じ形の行が真下に足されます。項目は 工種 → 種別 → 細別 → 写真タイトル → 撮影箇所 → 撮影年月日 の順に進みます。
+・編集メニューの「表組の挿入…」（ツールバーの「▦ 表組…」）で、項目と行数を決めてから、カード上をドラッグした範囲に表組をまとめて置けます。プリセットは実物のテンプレートによくある並びです。
 ・矢印キーで 0.5 mm ずつ（Shift で 5 mm）動かせます。Ctrl+ホイールで拡大縮小、中ボタンかスペース＋ドラッグで画面を動かします。
 
 ■ 保持のみ（🔒）の部品

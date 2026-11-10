@@ -99,7 +99,7 @@ fn default_sizes_follow_tool() {
         (Tool::Value, 25.0, 5.0),
     ];
     for (tool, w, h) in cases {
-        let (dw, dh) = default_size(tool);
+        let (dw, dh) = default_size(tool, &TableSpec::default());
         assert!((dw * MM_PER_INCH - w).abs() < 1e-9, "{tool:?}");
         assert!((dh * MM_PER_INCH - h).abs() < 1e-9, "{tool:?}");
     }
@@ -181,7 +181,13 @@ fn place_creates_objects_per_tool() {
     ];
     for (tool, count, kind) in cases {
         let mut doc = Document::new(Template::default(), "t", None);
-        place(&mut doc, tool, (1.0, 1.0), (3.0, 2.0));
+        place(
+            &mut doc,
+            tool,
+            (1.0, 1.0),
+            (3.0, 2.0),
+            &TableSpec::default(),
+        );
         assert_eq!(doc.template.objects.len(), count, "{tool:?}");
         if let Some(o) = doc.template.objects.first() {
             assert_eq!(o.kind, kind, "{tool:?}");
@@ -195,20 +201,38 @@ fn place_creates_objects_per_tool() {
 #[test]
 fn place_uses_default_size_for_tiny_drags() {
     let mut doc = Document::new(Template::default(), "t", None);
-    place(&mut doc, Tool::Picture, (1.0, 1.0), (1.0, 1.0));
-    let (dw, dh) = default_size(Tool::Picture);
+    place(
+        &mut doc,
+        Tool::Picture,
+        (1.0, 1.0),
+        (1.0, 1.0),
+        &TableSpec::default(),
+    );
+    let (dw, dh) = default_size(Tool::Picture, &TableSpec::default());
     let r = doc.template.objects[0].rect;
     assert!((r[2] - r[0] - dw).abs() < 1e-9 && (r[3] - r[1] - dh).abs() < 1e-9);
     // 逆向きのドラッグでも正規化される
     let mut doc = Document::new(Template::default(), "t", None);
-    place(&mut doc, Tool::Value, (3.0, 2.0), (1.0, 1.0));
+    place(
+        &mut doc,
+        Tool::Value,
+        (3.0, 2.0),
+        (1.0, 1.0),
+        &TableSpec::default(),
+    );
     assert_eq!(doc.template.objects[0].rect, [1.0, 1.0, 3.0, 2.0]);
 }
 
 #[test]
 fn place_row_selects_both_cells() {
     let mut doc = Document::new(Template::default(), "t", None);
-    place(&mut doc, Tool::Row, (1.0, 1.0), (4.0, 1.5));
+    place(
+        &mut doc,
+        Tool::Row,
+        (1.0, 1.0),
+        (4.0, 1.5),
+        &TableSpec::default(),
+    );
     assert_eq!(doc.selection, [0, 1].into());
     let (a, b) = (doc.template.objects[0].rect, doc.template.objects[1].rect);
     assert!((a[2] - a[0] - 0.96).abs() < 1e-9, "名前側は幅の 32%");
@@ -608,7 +632,7 @@ fn click_with_tool_places_default_sized_object() {
     let p = rig.at(1.0, 1.0);
     rig.click(p);
     assert_eq!(rig.doc.template.objects.len(), 1);
-    let (dw, dh) = default_size(Tool::Picture);
+    let (dw, dh) = default_size(Tool::Picture, &TableSpec::default());
     let r = rig.rect_of(0);
     assert!((r[2] - r[0] - dw).abs() < 2e-3 && (r[3] - r[1] - dh).abs() < 2e-3);
     assert_eq!(rig.tool, Tool::Select);
@@ -850,4 +874,27 @@ fn outline_offsets_fill_the_disk_without_gaps() {
         }
     }
     assert!(outline_offsets(0.0, 1.0).is_empty());
+}
+
+#[test]
+fn table_tool_places_a_whole_table_in_the_dragged_rect() {
+    let table = TableSpec {
+        fields: vec!["工種".into(), "種別".into()],
+        label_pct: 25,
+    };
+    let mut doc = Document::new(Template::default(), "t", None);
+    place(&mut doc, Tool::Table, (1.0, 1.0), (5.0, 2.0), &table);
+    // 2 行 × 2 つ。行の高さは範囲 1 in ÷ 2、項目名の列は幅 4 in の 25%
+    assert_eq!(doc.template.objects.len(), 4);
+    let r = doc.template.objects[1].rect;
+    assert_eq!(r, [2.0, 1.0, 5.0, 1.5]);
+    assert_eq!(doc.selection.len(), 4);
+    // クリックに近い小さなドラッグは、既定の大きさ（幅 70 mm、1 行 5 mm × 行数）
+    let mut doc = Document::new(Template::default(), "t", None);
+    place(&mut doc, Tool::Table, (1.0, 1.0), (1.0, 1.0), &table);
+    let (dw, dh) = default_size(Tool::Table, &table);
+    assert!((dw * MM_PER_INCH - 70.0).abs() < 1e-9);
+    assert!((dh * MM_PER_INCH - 10.0).abs() < 1e-9);
+    let r = doc.template.objects[1].rect;
+    assert!((r[2] - (1.0 + dw)).abs() < 1e-9 && (r[3] - (1.0 + dh / 2.0)).abs() < 1e-9);
 }

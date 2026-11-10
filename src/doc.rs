@@ -39,6 +39,52 @@ pub const ROW_ORDER: &[&str] = &[
     "請負者説明文",
 ];
 
+/// 表組のプリセット（実物 96 件の項目値の並びで、よくある物）。名前と、上から並べる項目
+pub const TABLE_PRESETS: &[(&str, &[&str])] = &[
+    (
+        "標準 6 行（工種・種別・細別・写真タイトル・撮影箇所・撮影年月日）",
+        &[
+            "工種",
+            "種別",
+            "細別",
+            "写真タイトル",
+            "撮影箇所",
+            "撮影年月日",
+        ],
+    ),
+    (
+        "写真タイトルから始まる 6 行",
+        &[
+            "写真タイトル",
+            "工種",
+            "種別",
+            "細別",
+            "撮影箇所",
+            "撮影年月日",
+        ],
+    ),
+    (
+        "工種・種別・写真タイトル",
+        &["工種", "種別", "写真タイトル"],
+    ),
+    (
+        "種別・撮影箇所・写真タイトル",
+        &["種別", "撮影箇所", "写真タイトル"],
+    ),
+    (
+        "工種・撮影箇所・写真タイトル",
+        &["工種", "撮影箇所", "写真タイトル"],
+    ),
+    (
+        "旧様式 3 行（写真タイトル・撮影年月日・撮影箇所）",
+        &["写真タイトル", "撮影年月日", "撮影箇所"],
+    ),
+    (
+        "旧様式 4 行（…・請負者説明文）",
+        &["写真タイトル", "撮影年月日", "撮影箇所", "請負者説明文"],
+    ),
+];
+
 /// 表組で、この項目の次の行に当てる項目
 pub fn next_row_field(field: &str) -> &str {
     match ROW_ORDER.iter().position(|f| *f == field) {
@@ -268,7 +314,7 @@ impl Document {
         i
     }
 
-    /// 項目名と項目値を 1 行ぶん並べて追加する（サンプルの「表組」と同じ形）
+    /// 項目名と項目値を 1 行ぶん並べて追加する（サンプルの「表組」と同じ形）。「元に戻す」1 回で行ごと戻る
     pub fn add_field_row(
         &mut self,
         field: &str,
@@ -277,9 +323,41 @@ impl Document {
         value_w: f64,
         h: f64,
     ) -> (usize, usize) {
-        let (x, y) = origin;
-        // 名前と値は「元に戻す」1 回で行ごと戻す
         self.checkpoint(None);
+        self.push_field_row(field, origin, label_w, value_w, h)
+    }
+
+    /// `fields` を上から 1 行ずつ、`rect`（x0, y0, x1, y1）を行数で等分して並べる表組。
+    /// 項目名の列は幅の `label_ratio`。足した部品がぜんぶ選ばれ、「元に戻す」は 1 回で表ごと戻る。項目が無ければ何もしない
+    pub fn add_field_table(&mut self, fields: &[String], rect: [f64; 4], label_ratio: f64) {
+        if fields.is_empty() {
+            return;
+        }
+        let [x0, y0, x1, y1] = rect;
+        let (w, h) = (x1 - x0, (y1 - y0) / fields.len() as f64);
+        self.checkpoint(None);
+        let start = self.template.objects.len();
+        for (k, f) in fields.iter().enumerate() {
+            self.push_field_row(
+                f,
+                (x0, y0 + k as f64 * h),
+                w * label_ratio,
+                w * (1.0 - label_ratio),
+                h,
+            );
+        }
+        self.selection = (start..self.template.objects.len()).collect();
+    }
+
+    fn push_field_row(
+        &mut self,
+        field: &str,
+        origin: (f64, f64),
+        label_w: f64,
+        value_w: f64,
+        h: f64,
+    ) -> (usize, usize) {
+        let (x, y) = origin;
         let a = self.push_caption(field, field, false, [x, y, x + label_w, y + h]);
         let b = self.push_caption(
             "",
@@ -1222,6 +1300,59 @@ mod tests {
             .map(|&i| d.template.objects[i].rect)
             .collect();
         assert_eq!(rects, [[1.0, 1.25, 1.5, 1.5], [1.5, 1.25, 3.0, 1.5]]);
+    }
+
+    #[test]
+    fn table_presets_use_known_fields_without_duplicates_in_a_row() {
+        for (name, fields) in TABLE_PRESETS {
+            assert!(!fields.is_empty(), "{name}");
+            for f in *fields {
+                assert!(KNOWN_FIELDS.contains(f), "{name}: {f}");
+            }
+            let set: BTreeSet<_> = fields.iter().collect();
+            assert_eq!(set.len(), fields.len(), "{name}");
+        }
+    }
+
+    #[test]
+    fn add_field_table_splits_the_rect_evenly_and_undoes_in_one_step() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let fields: Vec<String> = ["工種", "種別", "写真タイトル"]
+            .iter()
+            .map(|f| f.to_string())
+            .collect();
+        d.add_field_table(&fields, [1.0, 2.0, 4.0, 3.5], 0.4);
+        assert_eq!(d.template.objects.len(), 6);
+        // 1 行 0.5 in。項目名の列は幅 3 in の 40% = 1.2 in
+        let rects: Vec<[f64; 4]> = d.template.objects.iter().map(|o| o.rect).collect();
+        let near = |a: [f64; 4], b: [f64; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-9);
+        assert!(near(rects[0], [1.0, 2.0, 2.2, 2.5]));
+        assert!(near(rects[1], [2.2, 2.0, 4.0, 2.5]));
+        assert!(near(rects[2], [1.0, 2.5, 2.2, 3.0]));
+        assert!(near(rects[5], [2.2, 3.0, 4.0, 3.5]));
+        let names: Vec<String> = d
+            .template
+            .objects
+            .iter()
+            .filter_map(|o| match &o.body {
+                Body::Caption(c) if c.is_value_cell() => Some(c.field.to_string_lossy()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, ["工種", "種別", "写真タイトル"]);
+        // 足した部品がぜんぶ選ばれ、元に戻すのは 1 回
+        assert_eq!(d.selection, (0..6).collect());
+        d.undo();
+        assert!(d.template.objects.is_empty());
+        assert!(!d.can_undo());
+    }
+
+    #[test]
+    fn add_field_table_without_fields_does_nothing() {
+        let mut d = Document::new(Template::default(), "t", None);
+        d.add_field_table(&[], [0.0, 0.0, 1.0, 1.0], 0.3);
+        assert!(d.template.objects.is_empty());
+        assert!(!d.can_undo());
     }
     #[test]
     fn delete_copy_and_paste() {

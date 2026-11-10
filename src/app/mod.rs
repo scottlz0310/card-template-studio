@@ -1,6 +1,6 @@
 //! アプリ全体：メニュー、道具、左右の欄、ファイル操作、確認の画面。
 
-use crate::canvas::{self, ACCENT, CanvasAction, CanvasState, Tool, View};
+use crate::canvas::{self, ACCENT, CanvasAction, CanvasState, TableSpec, Tool, View};
 use crate::doc::{self, Align, Document, Library, validate_name};
 use crate::layout::{PRESETS, layout_label};
 use crate::props;
@@ -47,7 +47,13 @@ enum Modal {
         title: String,
         body: String,
     },
+    InsertTable {
+        spec: TableSpec,
+    },
 }
+
+/// 表組の行数の上限
+const TABLE_MAX_ROWS: usize = 20;
 
 pub struct StudioApp {
     doc: Document,
@@ -147,6 +153,15 @@ impl StudioApp {
             self.modal = Some(Modal::ConfirmDiscard(p));
         } else {
             self.run_pending(p);
+        }
+    }
+
+    /// 「表組の挿入」を開く。前に決めた内容から始める
+    pub(super) fn open_insert_table(&mut self) {
+        if self.modal.is_none() {
+            self.modal = Some(Modal::InsertTable {
+                spec: self.canvas.table.clone(),
+            });
         }
     }
 
