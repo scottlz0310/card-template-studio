@@ -56,6 +56,16 @@ fn survey_caption(h: &mut BTreeMap<String, Hist>, c: &CaptionBody) {
     add(h, "文字 (t108, is_value)", (c.t108, c.is_value));
     add(
         h,
+        "文字 (is_value, 項目名が空, 表示文字が空, 値の文字)",
+        (
+            c.is_value,
+            c.field.is_empty(),
+            c.text.is_empty(),
+            c.value.to_string_lossy(),
+        ),
+    );
+    add(
+        h,
         "文字 (fmt+0x18, border)",
         (read_fmt(f, 0x18) as i32, c.border),
     );
@@ -130,6 +140,29 @@ fn survey_real_samples() {
         rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
         for (value, n) in rows {
             println!("  {n:>5}  {value}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP が要る。調査用の手動実行"]
+fn list_odd_captions() {
+    let dir = std::env::var("CARD_TPL_SAMPLES").expect("CARD_TPL_SAMPLES が未設定");
+    for (path, t) in load(&dir) {
+        for (i, o) in t.objects.iter().enumerate() {
+            let Body::Caption(c) = &o.body else { continue };
+            if c.is_value != -1 && c.t108 != -1 {
+                continue;
+            }
+            println!(
+                "{path} #{i} text={:?} value={:?} field={:?} t108={} is_value={} rect={:?}",
+                c.text.to_string_lossy(),
+                c.value.to_string_lossy(),
+                c.field.to_string_lossy(),
+                c.t108,
+                c.is_value,
+                o.rect
+            );
         }
     }
 }
