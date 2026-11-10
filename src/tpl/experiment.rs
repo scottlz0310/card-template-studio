@@ -525,3 +525,78 @@ fn gen_picture_photo_experiment() {
     let p = write_template(&out, "TEMP1x3_V", "実験_写真設定", &t);
     println!("{}", p.display());
 }
+
+/// 影の距離・袋文字の太さの単位を測る（1x1 のカードに並べる。1×3 への切り替えを避けるため）。
+/// 1 行目: 影の距離 0 / 10 / 20 / 40 / 60（向き 0 = 真右）、2 行目: 距離 30 で向き 0 / 90 / 180 / 270 / -45、
+/// 3 行目: 袋文字の太さ 3 / 10 / 20 / 40 / 60。枠（既定の枠線あり）の幅 1.25 in が、画面での寸法の物差しになる。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_fmt_unit_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x1_V/検証用テンプレート.TPL");
+    t.objects.clear();
+    let shadow = (0x04, 1, 1);
+    let outline = (0x04, 1, 2);
+    let red = (0x20, 4, 0x00_00ff);
+    let red_edge = (0x24, 4, 0x00_00ff);
+    let rows: Vec<Vec<Vec<FmtEdit>>> = vec![
+        [0u32, 10, 20, 40, 60]
+            .iter()
+            .map(|&d| vec![shadow, red, (0x0a, 2, d)])
+            .collect(),
+        [0i32, 90, 180, 270, -45]
+            .iter()
+            .map(|&a| vec![shadow, red, (0x0a, 2, 30), (0x18, 4, a as u32)])
+            .collect(),
+        [3u32, 10, 20, 40, 60]
+            .iter()
+            .map(|&w| vec![outline, red_edge, (0x0c, 2, w)])
+            .collect(),
+    ];
+    for (r, row) in rows.iter().enumerate() {
+        for (c, edits) in row.iter().enumerate() {
+            let (x, y) = (0.1 + c as f64 * 1.4, 0.1 + r as f64 * 0.9);
+            let mut cap = CaptionBody::new("あ", "", false, 28);
+            for (off, width, value) in edits {
+                cap.fmt[*off..*off + *width].copy_from_slice(&value.to_le_bytes()[..*width]);
+            }
+            t.objects
+                .push(Object::new(Body::Caption(cap), [x, y, x + 1.25, y + 0.7]));
+        }
+    }
+    let p = write_template(&out, "TEMP1x1_V", "実験_効果単位", &t);
+    println!("{}", p.display());
+}
+
+/// 影の距離・袋文字の太さが、文字の大きさに比例するかを調べる（`gen_fmt_unit_experiment` の続き）。
+/// 1 行目: 距離 30・向き 0 の影、2 行目: 太さ 20 の袋文字。文字の大きさ 14 / 28 / 42 / 56pt。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_fmt_unit_by_size_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x1_V/検証用テンプレート.TPL");
+    t.objects.clear();
+    let red = (0x20, 4, 0x00_00ff);
+    let red_edge = (0x24, 4, 0x00_00ff);
+    let kinds: [Vec<FmtEdit>; 2] = [
+        vec![(0x04, 1, 1), red, (0x0a, 2, 30), (0x18, 4, 0)],
+        vec![(0x04, 1, 2), red_edge, (0x0c, 2, 20)],
+    ];
+    for (r, base) in kinds.iter().enumerate() {
+        for (c, size) in [14u16, 28, 42, 56].iter().enumerate() {
+            let (x, y) = (0.1 + c as f64 * 1.4, 0.1 + r as f64 * 1.5);
+            let mut cap = CaptionBody::new("あ", "", false, *size);
+            for (off, width, value) in base {
+                cap.fmt[*off..*off + *width].copy_from_slice(&value.to_le_bytes()[..*width]);
+            }
+            t.objects
+                .push(Object::new(Body::Caption(cap), [x, y, x + 1.25, y + 1.3]));
+        }
+    }
+    let p = write_template(&out, "TEMP1x1_V", "実験_効果単位2", &t);
+    println!("{}", p.display());
+}

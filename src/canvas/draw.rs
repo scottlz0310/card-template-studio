@@ -379,8 +379,8 @@ pub(super) fn draw_caption_text(
             clip.galley(at + vec2((px / 28.0).max(0.6), 0.0), g.clone(), col);
         }
     };
-    let effect_px =
-        |units: u16| units as f32 * tpl::EFFECT_UNIT_MM as f32 / MM_PER_INCH as f32 * xf.ppi;
+    // 距離・太さは文字の大きさに比例する（絶対の長さではない）
+    let effect_px = |units: u16| units as f32 * tpl::EFFECT_UNIT_EM * px;
     match tpl::TextEffect::from_byte(fmt[fmt_off::EFFECT]) {
         tpl::TextEffect::None => {}
         tpl::TextEffect::Shadow => {
