@@ -10,7 +10,7 @@ fn harness_with(open: Option<PathBuf>, screenshot: Option<PathBuf>) -> H {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1440.0, 900.0))
         .allow_missing_glyphs()
-        .with_accessibility_check(false)
+        .with_accessibility_check(true)
         .with_max_steps(30)
         .build_eframe(move |cc| StudioApp::new(&cc.egui_ctx, open, screenshot));
     if h.state().shot.is_some() {
