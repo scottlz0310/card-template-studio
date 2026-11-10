@@ -782,7 +782,10 @@ fn border_props_multi(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
         doc.checkpoint(Some(&format!("border-{captions:?}")));
         for &i in &captions {
             let c = caption_mut(doc, i);
-            c.border = v.0 as i32;
+            // 枠線の有無・色・太さは、それぞれ変えた方だけを当てる（有無が混ざっていても、太さだけ変えれば有無は保つ）
+            if v.0 != before.0 {
+                c.border = v.0 as i32;
+            }
             // 色・太さは、変えた方だけを当てる。古い形式（色・太さを持たない）の物には足さない
             if let (Some((c0, w0)), Some((c1, w1)), Some((col, w))) =
                 (before.1, v.1, c.border_style.as_mut())
@@ -1130,6 +1133,38 @@ mod tests {
         for i in 0..3 {
             assert_eq!(caption_body(&h, i).border, 0, "#{i}");
         }
+    }
+
+    #[test]
+    fn multi_selection_border_keeps_a_mixed_on_off_state_when_only_the_width_changes() {
+        let mut on = CaptionBody::new("a", "", false, 12);
+        on.border = 1;
+        on.border_style = Some((0, 0));
+        let mut off = CaptionBody::new("b", "", false, 12);
+        off.border = 0;
+        off.border_style = Some((0, 0));
+        let objs = [on, off]
+            .into_iter()
+            .enumerate()
+            .map(|(k, c)| Object::new(Body::Caption(c), [k as f64, 0.5, k as f64 + 0.9, 0.8]))
+            .collect();
+        // 先頭は枠線あり、2 つ目は枠線なし。太さだけを変えても、2 つ目に枠線は付かない
+        let mut h = harness(objs, &[0, 1]);
+        h.get_by_label("0.7 mm").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border, 1);
+        assert_eq!(caption_body(&h, 0).border_style, Some((0, 2)));
+        assert_eq!(caption_body(&h, 1).border, 0);
+        assert_eq!(caption_body(&h, 1).border_style, Some((0, 2)));
+        // 有無を変えたときは、ぜんぶに当たる
+        h.get_by_label("枠線を引く").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border, 0);
+        assert_eq!(caption_body(&h, 1).border, 0);
+        h.get_by_label("枠線を引く").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border, 1);
+        assert_eq!(caption_body(&h, 1).border, 1);
     }
     #[test]
     fn border_toggle_and_width_edit_caption() {
