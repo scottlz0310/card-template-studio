@@ -124,3 +124,102 @@ fn gen_picture_frame_experiment() {
     let p = write_template(&out, "TEMP1x3_V", "実験_写真枠b8bc", &t);
     println!("{}", p.display());
 }
+
+/// 写真枠の枠線の太さの候補（`cc` / `d0` / `e0`）を枠ごとに変えた TPL を作る。
+/// 全枠 `b8 = 0x11`（角丸＋枠線）, `bc` = 赤。枠は 4 列 × 2 行（左上から右へ）。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_picture_frame_border_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    // (cc, d0, e0)
+    let cases: [(u32, u32, u32); 8] = [
+        (0, 0, 0xffff_ffff),
+        (1, 0, 0xffff_ffff),
+        (2, 0, 0xffff_ffff),
+        (5, 0, 0xffff_ffff),
+        (0, 1, 0xffff_ffff),
+        (0, 5, 0xffff_ffff),
+        (0, 0, 0),
+        (0, 0, 5),
+    ];
+    let mut t = read_template("TEMP1x3_V/写真のみ.TPL");
+    let base = t.objects.remove(0);
+    let Body::Picture(base_body) = &base.body else {
+        panic!("写真のみ.TPL の先頭が写真枠でない")
+    };
+    t.objects.clear();
+    for (i, (cc, d0, e0)) in cases.iter().enumerate() {
+        let (col, row) = ((i % 4) as f64, (i / 4) as f64);
+        let (x, y) = (0.1 + col * 2.0, 0.15 + row * 1.8);
+        let mut o = base.clone();
+        o.rect = [x, y, x + 1.85, y + 1.65];
+        let mut b = base_body.clone();
+        b.b8 = 0x11;
+        b.bc = 0x0000ff;
+        (b.cc, b.d0, b.e0) = (*cc, *d0, *e0);
+        o.body = Body::Picture(b);
+        t.objects.push(o);
+    }
+    let p = write_template(&out, "TEMP1x3_V", "実験_写真枠太さ", &t);
+    println!("{}", p.display());
+}
+
+/// `b8` の bit 4〜7（枠線まわりの値）を 0〜15 で全部試す TPL を作る（下位は 1 = 角丸）。
+/// 全枠 `bc` = 赤。枠は 8 列 × 2 行（左上から右へ。1 行目が 0〜7、2 行目が 8〜15）。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_picture_frame_b8_nibble_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x3_V/写真のみ.TPL");
+    let base = t.objects.remove(0);
+    let Body::Picture(base_body) = &base.body else {
+        panic!("写真のみ.TPL の先頭が写真枠でない")
+    };
+    t.objects.clear();
+    for n in 0..16u32 {
+        let (col, row) = ((n % 8) as f64, (n / 8) as f64);
+        let (x, y) = (0.1 + col * 1.0, 0.15 + row * 1.8);
+        let mut o = base.clone();
+        o.rect = [x, y, x + 0.9, y + 1.65];
+        let mut b = base_body.clone();
+        b.b8 = (n << 4) | 1;
+        b.bc = 0x0000ff;
+        o.body = Body::Picture(b);
+        t.objects.push(o);
+    }
+    let p = write_template(&out, "TEMP1x3_V", "実験_写真枠b8nibble", &t);
+    println!("{}", p.display());
+}
+
+/// `b8` の下位 4 ビット（枠の形）を 0〜15 で全部試す TPL を作る（上位は 1 = 細い枠線）。
+/// 全枠 `bc` = 赤。枠は 8 列 × 2 行（左上から右へ。1 行目が 0〜7、2 行目が 8〜15）。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_picture_frame_b8_shape_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    let mut t = read_template("TEMP1x3_V/写真のみ.TPL");
+    let base = t.objects.remove(0);
+    let Body::Picture(base_body) = &base.body else {
+        panic!("写真のみ.TPL の先頭が写真枠でない")
+    };
+    t.objects.clear();
+    for n in 0..16u32 {
+        let (col, row) = ((n % 8) as f64, (n / 8) as f64);
+        let (x, y) = (0.1 + col * 1.0, 0.15 + row * 1.8);
+        let mut o = base.clone();
+        o.rect = [x, y, x + 0.9, y + 1.65];
+        let mut b = base_body.clone();
+        b.b8 = 0x10 | n;
+        b.bc = 0x0000ff;
+        o.body = Body::Picture(b);
+        t.objects.push(o);
+    }
+    let p = write_template(&out, "TEMP1x3_V", "実験_写真枠b8shape", &t);
+    println!("{}", p.display());
+}
