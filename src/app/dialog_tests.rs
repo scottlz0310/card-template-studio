@@ -88,7 +88,7 @@ fn harness(open: Option<PathBuf>) -> (H, Rc<FakeDialogs>) {
     let mut h = Harness::builder()
         .with_size(egui::vec2(1440.0, 900.0))
         .allow_missing_glyphs()
-        .with_accessibility_check(false)
+        .with_accessibility_check(true)
         .with_max_steps(30)
         .build_eframe(move |cc| {
             StudioApp::with_dialogs(&cc.egui_ctx, open, None, Box::new(shared))

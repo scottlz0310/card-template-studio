@@ -20,10 +20,13 @@ impl StudioApp {
                     ui.set_width(380.0);
                     ui.heading("新規テンプレート");
                     ui.add_space(6.0);
-                    ui.label("テンプレート名");
-                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(f32::INFINITY));
+                    let name_label = ui.label("テンプレート名");
+                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(f32::INFINITY))
+                        .labelled_by(name_label.id);
                     ui.add_space(6.0);
-                    ui.label("カードのレイアウト（1 ページの分割数と用紙の向き）");
+                    let layout_label_id = ui
+                        .label("カードのレイアウト（1 ページの分割数と用紙の向き）")
+                        .id;
                     egui::ComboBox::from_id_salt("new-layout")
                         .width(260.0)
                         .selected_text(layout_label(layout.0, layout.1, layout.2))
@@ -31,7 +34,9 @@ impl StudioApp {
                             for &(c, r, p) in PRESETS {
                                 ui.selectable_value(&mut layout, (c, r, p), layout_label(c, r, p));
                             }
-                        });
+                        })
+                        .response
+                        .labelled_by(layout_label_id);
                     ui.add_space(6.0);
                     ui.radio_value(
                         &mut starter,
@@ -123,8 +128,9 @@ impl StudioApp {
             } => {
                 egui::Modal::new(egui::Id::unique("saveas")).show(ctx, |ui| {
                     ui.heading("保存");
-                    ui.label("保存するテンプレートの名前を入力してください");
-                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(320.0));
+                    let name_label = ui.label("保存するテンプレートの名前を入力してください");
+                    ui.add(egui::TextEdit::singleline(&mut name).desired_width(320.0))
+                        .labelled_by(name_label.id);
                     if let Some(e) = &error {
                         ui.colored_label(Color32::from_rgb(0xc0, 0x39, 0x2b), e);
                     }

@@ -39,10 +39,12 @@ const EDITABLE_FIELDS: &[(usize, usize)] = &[
     (fmt_off::OUTLINE_COLOR, 4),
 ];
 
-fn section(ui: &mut egui::Ui, title: &str) {
+/// 見出しを出し、その id を返す（直下のウィジェットの名前に結び付けるため）
+fn section(ui: &mut egui::Ui, title: &str) -> egui::Id {
     ui.add_space(6.0);
-    ui.label(RichText::new(title).strong().color(ACCENT));
+    let id = ui.label(RichText::new(title).strong().color(ACCENT)).id;
     ui.separator();
+    id
 }
 
 fn mm_drag(ui: &mut egui::Ui, v: &mut f64, label: &str) -> bool {
@@ -134,7 +136,7 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Document, focus_text: &mut bool) {
 fn card_props(ui: &mut egui::Ui, doc: &mut Document) {
     ui.label(RichText::new("カード全体").heading());
     let frame = card_frame(&doc.template);
-    section(ui, "レイアウト");
+    let layout_heading = section(ui, "レイアウト");
     let h = doc.template.header.clone();
     let mut choice = (h.cols, h.rows, h.is_portrait());
     egui::ComboBox::from_id_salt("layout")
@@ -144,7 +146,9 @@ fn card_props(ui: &mut egui::Ui, doc: &mut Document) {
             for &(c, r, p) in PRESETS {
                 ui.selectable_value(&mut choice, (c, r, p), layout_label(c, r, p));
             }
-        });
+        })
+        .response
+        .labelled_by(layout_heading);
     if choice != (h.cols, h.rows, h.is_portrait()) {
         doc.set_layout(choice.0, choice.1, choice.2);
     }
@@ -389,13 +393,14 @@ fn caption_props(
             |d| caption_ref(d, i).text.to_string_lossy(),
             |d, v| caption_mut(d, i).text = SjisString::from_str(&v),
             |v| {
-                ui.label("表示する文字");
+                let label = ui.label("表示する文字");
                 let r = sjis_text_edit(ui, ("text", i), v, |ui, v| {
                     ui.add(
                         egui::TextEdit::multiline(v)
                             .desired_rows(2)
                             .desired_width(f32::INFINITY),
                     )
+                    .labelled_by(label.id)
                 });
                 if *focus_text {
                     r.request_focus();
@@ -411,7 +416,7 @@ fn caption_props(
         |d, v| caption_mut(d, i).field = SjisString::from_str(&v),
         |v| {
             ui.horizontal(|ui| {
-                ui.label(if is_value {
+                let label = ui.label(if is_value {
                     "表示する項目"
                 } else {
                     "対応する項目"
@@ -430,7 +435,9 @@ fn caption_props(
                         for f in KNOWN_FIELDS {
                             ui.selectable_value(v, (*f).to_string(), *f);
                         }
-                    });
+                    })
+                    .response
+                    .labelled_by(label.id);
             });
             sjis_text_edit(ui, ("field-text", i), v, |ui, v| {
                 ui.add(
@@ -457,7 +464,7 @@ fn caption_props(
             |d, v| d.template.objects[i].link = v,
             |v| {
                 ui.horizontal(|ui| {
-                    ui.label("どの写真の情報か");
+                    let label = ui.label("どの写真の情報か");
                     egui::ComboBox::from_id_salt(("link", i))
                         .selected_text(if *v == 0 {
                             "指定なし".into()
@@ -469,7 +476,9 @@ fn caption_props(
                             for n in 1..=pictures {
                                 ui.selectable_value(v, n, format!("写真 {n}"));
                             }
-                        });
+                        })
+                        .response
+                        .labelled_by(label.id);
                 });
             },
         );
@@ -545,7 +554,9 @@ fn font_props(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
                     for name in FACES {
                         ui.selectable_value(&mut face, (*name).to_string(), *name);
                     }
-                });
+                })
+                .response
+                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "書体"));
             let mut size = f.u16(fmt_off::SIZE);
             if ui
                 .add(egui::DragValue::new(&mut size).range(4..=96).suffix(" pt"))
@@ -816,7 +827,7 @@ mod tests {
         let mut h = Harness::builder()
             .with_size(egui::vec2(360.0, 900.0))
             .allow_missing_glyphs()
-            .with_accessibility_check(false)
+            .with_accessibility_check(true)
             .build_ui_state(
                 |ui, s: &mut State| show(ui, &mut s.doc, &mut s.focus_text),
                 State {
@@ -860,7 +871,7 @@ mod tests {
     #[test]
     fn card_layout_can_be_changed_from_presets() {
         let mut h = harness(vec![], &[]);
-        h.get_by_role(egui::accesskit::Role::ComboBox).click();
+        h.get_by_label("レイアウト").click();
         h.run();
         h.get_by_label("横1×縦2（縦向き）").click();
         h.run();
@@ -1160,11 +1171,7 @@ mod tests {
     #[test]
     fn font_face_can_be_switched() {
         let mut h = harness(vec![caption("a", "", false, 0.1)], &[0]);
-        // 文字項目の欄の ComboBox は 項目 → 書体 の順
-        h.get_all_by_role(egui::accesskit::Role::ComboBox)
-            .nth(1)
-            .expect("書体の ComboBox")
-            .click();
+        h.get_by_label("書体").click();
         h.run();
         h.get_by_label("ＭＳ 明朝").click();
         h.run();
