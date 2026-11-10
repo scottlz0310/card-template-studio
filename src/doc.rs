@@ -27,6 +27,26 @@ pub const KNOWN_FIELDS: &[&str] = &[
     "写真区分",
 ];
 
+/// 表組の行の標準の並び（実物のテンプレートの並びに合わせる）。「下に行を追加」で、次の項目をこの順で当てる。
+/// 最後の項目と、ここに無い項目は、同じ項目のまま（あとで選び直す）
+pub const ROW_ORDER: &[&str] = &[
+    "工種",
+    "種別",
+    "細別",
+    "写真タイトル",
+    "撮影箇所",
+    "撮影年月日",
+    "請負者説明文",
+];
+
+/// 表組で、この項目の次の行に当てる項目
+pub fn next_row_field(field: &str) -> &str {
+    match ROW_ORDER.iter().position(|f| *f == field) {
+        Some(i) if i + 1 < ROW_ORDER.len() => ROW_ORDER[i + 1],
+        _ => field,
+    }
+}
+
 /// テンプレート名に使えない文字（本体の「テンプレート名に使用できない文字が含まれています」）
 pub const INVALID_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
@@ -268,6 +288,90 @@ impl Document {
             [x + label_w, y, x + label_w + value_w, y + h],
         );
         (a, b)
+    }
+
+    /// 「下に行を追加」できるか（編集できる文字項目が選ばれている）
+    pub fn can_add_row_below(&self) -> bool {
+        self.selected_editable()
+            .into_iter()
+            .any(|i| matches!(self.template.objects[i].body, Body::Caption(_)))
+    }
+
+    /// `i` の文字項目と同じ行にある文字項目（縦の中心が `i` の範囲に入り、左右に隙間なく連なるもの）。順序は重ね順のまま
+    fn row_of(&self, i: usize) -> Vec<usize> {
+        const GAP: f64 = 0.02;
+        let band = self.template.objects[i].normalized();
+        let mut row = vec![i];
+        loop {
+            let next = (0..self.template.objects.len()).find(|&j| {
+                if row.contains(&j) || !self.editable(j) {
+                    return false;
+                }
+                let o = &self.template.objects[j];
+                if !matches!(o.body, Body::Caption(_)) {
+                    return false;
+                }
+                let r = o.normalized();
+                let center = (r[1] + r[3]) / 2.0;
+                center >= band[1]
+                    && center <= band[3]
+                    && row.iter().any(|&m| {
+                        let m = self.template.objects[m].normalized();
+                        (r[0] - m[2]).max(m[0] - r[2]) <= GAP
+                    })
+            });
+            match next {
+                Some(j) => row.push(j),
+                None => break,
+            }
+        }
+        row.sort_unstable();
+        row
+    }
+
+    /// 選んだ文字項目（項目名・項目値の行）の真下に、同じ幅・高さ・書式の行を足す。項目は ROW_ORDER の次に進める。
+    /// 足した行を選び、「元に戻す」は 1 回で戻る。文字項目が選ばれていなければ何もしない（false）
+    pub fn add_row_below(&mut self) -> bool {
+        let sel: Vec<usize> = self
+            .selected_editable()
+            .into_iter()
+            .filter(|&i| matches!(self.template.objects[i].body, Body::Caption(_)))
+            .collect();
+        if sel.is_empty() {
+            return false;
+        }
+        // 1 つだけ選ばれているときは、その行（左右に隙間なく並ぶ文字項目）ぜんぶを対象にする
+        let sel = if let [one] = sel[..] {
+            self.row_of(one)
+        } else {
+            sel
+        };
+        let (top, bottom) = sel.iter().fold((f64::MAX, f64::MIN), |(t, b), &i| {
+            let r = self.template.objects[i].normalized();
+            (t.min(r[1]), b.max(r[3]))
+        });
+        let dy = bottom - top;
+        self.checkpoint(None);
+        let start = self.template.objects.len();
+        for i in sel {
+            let mut o = self.template.objects[i].clone();
+            o.rect[1] += dy;
+            o.rect[3] += dy;
+            if let Body::Caption(c) = &mut o.body {
+                let old = c.field.to_string_lossy();
+                let new = next_row_field(&old).to_string();
+                if new != old {
+                    // 項目名の見出し（表示する文字が項目名と同じ）も、新しい項目名にそろえる
+                    if c.text.to_string_lossy() == old {
+                        c.text = SjisString::from_str(&new);
+                    }
+                    c.field = SjisString::from_str(&new);
+                }
+            }
+            self.template.objects.push(o);
+        }
+        self.selection = (start..self.template.objects.len()).collect();
+        true
     }
 
     fn default_link(&self) -> u32 {
@@ -980,6 +1084,145 @@ mod tests {
         assert_eq!(d.template.objects.len(), 2);
     }
 
+    #[test]
+    fn next_row_field_follows_the_standard_order() {
+        let cases = [
+            ("工種", "種別"),
+            ("種別", "細別"),
+            ("細別", "写真タイトル"),
+            ("写真タイトル", "撮影箇所"),
+            ("撮影箇所", "撮影年月日"),
+            ("撮影年月日", "請負者説明文"),
+            // 最後の項目・並びに無い項目・空は、そのまま
+            ("請負者説明文", "請負者説明文"),
+            ("施工管理値", "施工管理値"),
+            ("", ""),
+        ];
+        for (from, to) in cases {
+            assert_eq!(next_row_field(from), to, "{from}");
+        }
+    }
+
+    #[test]
+    fn add_row_below_copies_the_row_and_advances_the_field() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let (a, b) = d.add_field_row("工種", (1.0, 1.0), 0.5, 1.5, 0.25);
+        d.selection = [a, b].into();
+        d.undo.clear();
+        assert!(d.add_row_below());
+        assert_eq!(d.template.objects.len(), 4);
+        // 真下（高さ 0.25 in）に、同じ幅・高さで並ぶ
+        assert_eq!(d.template.objects[2].rect, [1.0, 1.25, 1.5, 1.5]);
+        assert_eq!(d.template.objects[3].rect, [1.5, 1.25, 3.0, 1.5]);
+        let (Body::Caption(label), Body::Caption(value)) =
+            (&d.template.objects[2].body, &d.template.objects[3].body)
+        else {
+            panic!("文字項目のはず")
+        };
+        // 項目名の見出しと項目値の項目が、次の項目に進む
+        assert_eq!(label.field.to_string_lossy(), "種別");
+        assert_eq!(label.text.to_string_lossy(), "種別");
+        assert!(!label.is_value_cell());
+        assert_eq!(value.field.to_string_lossy(), "種別");
+        assert!(value.is_value_cell());
+        // 足した行が選ばれ、元の行はそのまま
+        assert_eq!(d.selection, [2, 3].into());
+        let Body::Caption(orig) = &d.template.objects[0].body else {
+            panic!()
+        };
+        assert_eq!(orig.field.to_string_lossy(), "工種");
+        // 「元に戻す」は 1 回で行ごと戻る
+        d.undo();
+        assert_eq!(d.template.objects.len(), 2);
+        assert!(!d.can_undo());
+    }
+
+    #[test]
+    fn add_row_below_repeats_to_build_a_table() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let (a, b) = d.add_field_row("工種", (0.0, 0.0), 0.5, 1.5, 0.25);
+        d.selection = [a, b].into();
+        for _ in 0..3 {
+            assert!(d.add_row_below());
+        }
+        let fields: Vec<String> = d
+            .template
+            .objects
+            .iter()
+            .filter_map(|o| match &o.body {
+                Body::Caption(c) if c.is_value_cell() => Some(c.field.to_string_lossy()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fields, ["工種", "種別", "細別", "写真タイトル"]);
+        // 行は隙間なく下へ積まれる
+        let ys: Vec<f64> = d.template.objects.iter().map(|o| o.rect[1]).collect();
+        assert_eq!(ys, [0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75]);
+    }
+
+    #[test]
+    fn add_row_below_with_several_rows_copies_the_block() {
+        let mut d = Document::new(Template::default(), "t", None);
+        d.add_field_row("工種", (0.0, 0.0), 0.5, 1.5, 0.25);
+        d.add_field_row("種別", (0.0, 0.25), 0.5, 1.5, 0.25);
+        d.select_all();
+        assert!(d.add_row_below());
+        assert_eq!(d.template.objects.len(), 8);
+        // 2 行ぶん（高さ 0.5 in）下へ。それぞれ次の項目に進む
+        assert_eq!(d.template.objects[4].rect[1], 0.5);
+        let fields: Vec<String> = d.template.objects[4..]
+            .iter()
+            .map(|o| match &o.body {
+                Body::Caption(c) => c.field.to_string_lossy(),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(fields, ["種別", "種別", "細別", "細別"]);
+    }
+
+    #[test]
+    fn add_row_below_keeps_fixed_text_and_ignores_non_captions() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let fixed = d.add_caption("撮影日", "", false, [0.0, 0.0, 0.5, 0.25]);
+        d.selection = [fixed].into();
+        assert!(d.add_row_below());
+        let Body::Caption(c) = &d.template.objects[1].body else {
+            panic!()
+        };
+        // 項目に結び付かない固定の文字は、そのまま
+        assert_eq!(c.text.to_string_lossy(), "撮影日");
+        assert_eq!(c.field.to_string_lossy(), "");
+
+        // 文字項目が選ばれていなければ何もせず、「元に戻す」の履歴も積まない
+        let mut d = Document::new(Template::default(), "t", None);
+        let pic = d.add_picture([0.0, 0.0, 1.0, 1.0]);
+        d.selection = [pic].into();
+        d.undo.clear();
+        assert!(!d.add_row_below());
+        assert_eq!(d.template.objects.len(), 1);
+        assert!(!d.can_undo());
+        d.selection.clear();
+        assert!(!d.add_row_below());
+    }
+
+    #[test]
+    fn add_row_below_with_one_caption_takes_the_whole_row() {
+        let mut d = Document::new(Template::default(), "t", None);
+        let (label, _value) = d.add_field_row("工種", (1.0, 1.0), 0.5, 1.5, 0.25);
+        // 同じ高さでも、隙間のある別の文字（左の注記）は行に含めない
+        d.add_caption("注記", "", false, [0.0, 1.0, 0.8, 1.25]);
+        d.selection = [label].into();
+        assert!(d.add_row_below());
+        // 項目名だけを選んでいても、項目名と項目値の 2 つが足される
+        assert_eq!(d.template.objects.len(), 5);
+        assert_eq!(d.selection.len(), 2);
+        let rects: Vec<[f64; 4]> = d
+            .selection
+            .iter()
+            .map(|&i| d.template.objects[i].rect)
+            .collect();
+        assert_eq!(rects, [[1.0, 1.25, 1.5, 1.5], [1.5, 1.25, 3.0, 1.5]]);
+    }
     #[test]
     fn delete_copy_and_paste() {
         let mut d = doc_with(3);

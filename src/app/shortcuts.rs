@@ -52,7 +52,7 @@ impl StudioApp {
         if y || sz {
             self.doc.redo();
         }
-        let (c, x, v, d, a, del, esc, zero) = ctx.input_mut(|i| {
+        let (c, x, v, d, a, del, esc, zero, row) = ctx.input_mut(|i| {
             (
                 i.consume_shortcut(&cmd(Key::C)),
                 i.consume_shortcut(&cmd(Key::X)),
@@ -62,6 +62,7 @@ impl StudioApp {
                 i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace),
                 i.key_pressed(Key::Escape),
                 i.consume_shortcut(&cmd(Key::Num0)),
+                i.consume_shortcut(&cmd(Key::Enter)),
             )
         });
         if c {
@@ -77,6 +78,9 @@ impl StudioApp {
         }
         if d {
             self.duplicate();
+        }
+        if row {
+            self.doc.add_row_below();
         }
         if a {
             self.doc.select_all();
