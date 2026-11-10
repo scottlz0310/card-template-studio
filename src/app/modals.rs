@@ -154,6 +154,109 @@ impl StudioApp {
                     next = Some(Modal::SaveAsName { name, error });
                 }
             }
+            Modal::InsertTable { mut spec } => {
+                let mut place = false;
+                egui::Modal::new(egui::Id::unique("table")).show(ctx, |ui| {
+                    ui.set_width(460.0);
+                    ui.heading("表組の挿入");
+                    ui.label("上から並べる項目を決めて「置く場所を決める」を押し、カード上をドラッグした範囲に等分して置きます。");
+                    ui.add_space(6.0);
+                    let preset_label = ui.label("プリセット（実物のテンプレートによくある並び）");
+                    egui::ComboBox::from_id_salt("table-preset")
+                        .width(ui.available_width() - 24.0)
+                        .selected_text("選ぶと、下の項目をこの並びに入れ替えます")
+                        .show_ui(ui, |ui| {
+                            for (name, fields) in doc::TABLE_PRESETS {
+                                if ui.selectable_label(false, *name).clicked() {
+                                    spec.fields = fields.iter().map(|f| (*f).to_string()).collect();
+                                }
+                            }
+                        })
+                        .response
+                        .labelled_by(preset_label.id);
+                    ui.add_space(6.0);
+                    let n = spec.fields.len();
+                    let mut op: Option<(usize, i32)> = None;
+                    for i in 0..n {
+                        ui.horizontal(|ui| {
+                            let row = ui.label(format!("{} 行目", i + 1));
+                            egui::ComboBox::from_id_salt(("table-field", i))
+                                .width(200.0)
+                                .selected_text(spec.fields[i].clone())
+                                .show_ui(ui, |ui| {
+                                    for f in doc::KNOWN_FIELDS {
+                                        ui.selectable_value(&mut spec.fields[i], (*f).to_string(), *f);
+                                    }
+                                })
+                                .response
+                                .labelled_by(row.id);
+                            // 同じ「↑」が並ぶので、行ごとの名前を付けて、押したかどうかを返す
+                            let named = |r: egui::Response, name: String| {
+                                let clicked = r.clicked();
+                                r.widget_info(move || {
+                                    egui::WidgetInfo::labeled(egui::Role::Button, true, name.clone())
+                                });
+                                clicked
+                            };
+                            if named(ui.add_enabled(i > 0, egui::Button::new("↑")), format!("{} 行目を上へ", i + 1)) {
+                                op = Some((i, -1));
+                            }
+                            if named(ui.add_enabled(i + 1 < n, egui::Button::new("↓")), format!("{} 行目を下へ", i + 1)) {
+                                op = Some((i, 1));
+                            }
+                            if named(ui.button("✕"), format!("{} 行目を削除", i + 1)) {
+                                op = Some((i, 0));
+                            }
+                        });
+                    }
+                    match op {
+                        Some((i, 0)) => {
+                            spec.fields.remove(i);
+                        }
+                        Some((i, d)) => spec.fields.swap(i, (i as i32 + d) as usize),
+                        None => {}
+                    }
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(spec.fields.len() < TABLE_MAX_ROWS, egui::Button::new("行を追加"))
+                            .clicked()
+                        {
+                            let next = spec
+                                .fields
+                                .last()
+                                .map(|l| doc::next_row_field(l).to_string())
+                                .unwrap_or_else(|| doc::KNOWN_FIELDS[0].to_string());
+                            spec.fields.push(next);
+                        }
+                        let pct = ui.label("項目名の列の幅");
+                        ui.add(
+                            egui::DragValue::new(&mut spec.label_pct)
+                                .range(10..=60)
+                                .suffix(" %"),
+                        )
+                        .labelled_by(pct.id);
+                    });
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(!spec.fields.is_empty(), egui::Button::new("置く場所を決める"))
+                            .clicked()
+                        {
+                            place = true;
+                            keep = false;
+                        }
+                        if ui.button("やめる").clicked() {
+                            keep = false;
+                        }
+                    });
+                });
+                if place {
+                    self.canvas.table = spec;
+                    self.tool = Tool::Table;
+                } else if keep {
+                    next = Some(Modal::InsertTable { spec });
+                }
+            }
             Modal::Message { title, body } => {
                 egui::Modal::new(egui::Id::unique("msg")).show(ctx, |ui| {
                     ui.set_max_width(520.0);

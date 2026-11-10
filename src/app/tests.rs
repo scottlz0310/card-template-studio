@@ -855,3 +855,83 @@ fn layer_list_shows_fixed_text_not_value_placeholder() {
         "値の枠は増えない"
     );
 }
+
+#[test]
+fn insert_table_dialog_edits_the_rows_and_arms_the_table_tool() {
+    let mut h = harness();
+    open_menu(&mut h, "編集", "表組の挿入…");
+    assert!(matches!(app(&mut h).modal, Some(Modal::InsertTable { .. })));
+    let fields = |h: &mut H| match &app(h).modal {
+        Some(Modal::InsertTable { spec }) => spec.fields.clone(),
+        _ => panic!("表組の挿入が開いていない"),
+    };
+    // 最初は標準の 6 行
+    assert_eq!(fields(&mut h).len(), 6);
+    assert_eq!(fields(&mut h)[0], "工種");
+    // 2 行目を下へ（種別 ↔ 細別）、1 行目を削除、行を追加
+    h.get_by_label("2 行目を下へ").click();
+    h.run();
+    assert_eq!(fields(&mut h)[1], "細別");
+    assert_eq!(fields(&mut h)[2], "種別");
+    h.get_by_label("1 行目を削除").click();
+    h.run();
+    assert_eq!(fields(&mut h).len(), 5);
+    assert_eq!(fields(&mut h)[0], "細別");
+    h.get_by_label("行を追加").click();
+    h.run();
+    // 最後（撮影年月日）の次の項目が入る
+    assert_eq!(fields(&mut h).len(), 6);
+    assert_eq!(fields(&mut h)[5], "請負者説明文");
+    // 置く場所を決める → 表組ツールになり、内容が渡る
+    h.get_by_label("置く場所を決める").click();
+    h.run();
+    assert!(app(&mut h).modal.is_none());
+    assert_eq!(app(&mut h).tool, Tool::Table);
+    assert_eq!(app(&mut h).canvas.table.fields.len(), 6);
+    assert_eq!(app(&mut h).canvas.table.fields[0], "細別");
+}
+
+#[test]
+fn insert_table_dialog_presets_cancel_and_row_limits() {
+    let mut h = harness();
+    // ツールバーの「表組…」から開く。「やめる」ではツールは変わらない
+    h.get_by_label("▦ 表組…").click();
+    h.run();
+    h.get_by_label("やめる").click();
+    h.run();
+    assert!(app(&mut h).modal.is_none());
+    assert_eq!(app(&mut h).tool, Tool::Select);
+    // プリセットを選ぶと、行が入れ替わる
+    h.get_by_label("▦ 表組…").click();
+    h.run();
+    h.get_by_label("プリセット（実物のテンプレートによくある並び）")
+        .click();
+    h.run();
+    h.get_by_label("工種・種別・写真タイトル").click();
+    h.run();
+    match &app(&mut h).modal {
+        Some(Modal::InsertTable { spec }) => {
+            assert_eq!(spec.fields, ["工種", "種別", "写真タイトル"])
+        }
+        _ => panic!("表組の挿入が開いていない"),
+    }
+    // 行を全部消すと、置けない
+    for _ in 0..3 {
+        h.get_by_label("1 行目を削除").click();
+        h.run();
+    }
+    h.get_by_label("行を追加").click();
+    h.run();
+    h.get_by_label("1 行目を削除").click();
+    h.run();
+    assert!(
+        h.query_by_label("1 行目を削除").is_none(),
+        "行が無いので行の操作も無い"
+    );
+    h.get_by_label("置く場所を決める").click();
+    h.run();
+    assert!(
+        matches!(app(&mut h).modal, Some(Modal::InsertTable { .. })),
+        "項目が 0 のときは置く操作を受け付けない"
+    );
+}

@@ -15,7 +15,7 @@ mod view;
 
 pub use show::show;
 pub use state::{CanvasAction, CanvasState};
-pub use tool::Tool;
+pub use tool::{TableSpec, Tool};
 pub use view::View;
 
 /// 1 インチあたりの画面ピクセル（倍率 100%）

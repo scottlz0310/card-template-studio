@@ -91,6 +91,7 @@ pub fn show(
         },
         hit_tol: 3.0 / ppi,
         handle_tol: (HANDLE + 6.0) as f64 / 2.0 / ppi,
+        table: &st.table,
     };
     let pointer = resp.interact_pointer_pos().or(hover);
 

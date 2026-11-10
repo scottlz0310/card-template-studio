@@ -231,3 +231,36 @@ fn list_cm_values() {
         }
     }
 }
+
+/// 項目値の枠（文字項目の `is_value`）を上から下の順に並べた項目名の並びを、実物ごとに出す（#19 の表組のプリセット用）。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP が要る。調査用の手動実行"]
+fn list_row_sequences() {
+    let dir = std::env::var("CARD_TPL_SAMPLES").expect("CARD_TPL_SAMPLES が未設定");
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for (path, t) in load(&dir) {
+        let mut vals: Vec<(f64, f64, String)> = t
+            .objects
+            .iter()
+            .filter_map(|o| match &o.body {
+                Body::Caption(c) if c.is_value == 1 && !c.field.is_empty() => {
+                    let r = o.normalized();
+                    Some((r[1], r[0], c.field.to_string_lossy()))
+                }
+                _ => None,
+            })
+            .collect();
+        vals.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        let seq: Vec<String> = vals.into_iter().map(|v| v.2).collect();
+        let name = path.rsplit(['\\', '/']).next().unwrap_or(&path).to_string();
+        let folder = path.rsplit(['\\', '/']).nth(1).unwrap_or("").to_string();
+        println!("{folder} {name}: {}", seq.join("→"));
+        *counts.entry(seq.join("→")).or_default() += 1;
+    }
+    let mut rows: Vec<_> = counts.into_iter().collect();
+    rows.sort_by_key(|a| std::cmp::Reverse(a.1));
+    println!("\n== 並びの頻度（多い順）");
+    for (seq, n) in rows.iter().take(25) {
+        println!("{n:>3}  {seq}");
+    }
+}

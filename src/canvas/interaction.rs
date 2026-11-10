@@ -7,7 +7,7 @@
 use super::geometry::{Handle, bounds_of, norm};
 use super::snap::{best_snap, candidates, snap, snap_point};
 use super::state::Drag;
-use super::tool::{Tool, default_size, place};
+use super::tool::{TableSpec, Tool, default_size, place};
 use crate::doc::Document;
 use crate::layout::CardFrame;
 use crate::tpl::{Body, MM_PER_INCH};
@@ -36,6 +36,7 @@ pub(super) struct Env<'a> {
     pub(super) snap: SnapCfg,
     pub(super) hit_tol: f64,
     pub(super) handle_tol: f64,
+    pub(super) table: &'a TableSpec,
 }
 
 /// 押した場所にあるもの
@@ -306,7 +307,7 @@ pub(super) fn release(doc: &mut Document, d: Drag, p: Option<Pt>, tool: &mut Too
         }
         Drag::Place { tool: t, start } => {
             if let Some(p) = p {
-                place(doc, t, start, place_point(p, env));
+                place(doc, t, start, place_point(p, env), env.table);
                 *tool = Tool::Select;
             }
         }
@@ -320,8 +321,8 @@ pub(super) fn release(doc: &mut Document, d: Drag, p: Option<Pt>, tool: &mut Too
 pub(super) fn click(doc: &mut Document, tool: &mut Tool, p: Pt, env: &Env) {
     if *tool != Tool::Select {
         let s = place_point(p, env);
-        let (w, h) = default_size(*tool);
-        place(doc, *tool, s, (s.0 + w, s.1 + h));
+        let (w, h) = default_size(*tool, env.table);
+        place(doc, *tool, s, (s.0 + w, s.1 + h), env.table);
         *tool = Tool::Select;
     } else if let Some(i) = hit_object(doc, p, env.hit_tol) {
         if env.mods.shift {
@@ -419,6 +420,7 @@ mod tests {
             },
             hit_tol: 0.03,
             handle_tol: 0.065,
+            table: Box::leak(Box::new(TableSpec::default())),
         }
     }
 
@@ -918,7 +920,7 @@ mod tests {
         let mut doc = doc_of(vec![]);
         click(&mut doc, &mut tool, (1.0, 1.0), &env);
         assert_eq!(doc.template.objects.len(), 1);
-        let (w, h) = default_size(Tool::Value);
+        let (w, h) = default_size(Tool::Value, &TableSpec::default());
         assert_rect(doc.template.objects[0].rect, [1.0, 1.0, 1.0 + w, 1.0 + h]);
         assert_eq!(tool, Tool::Select);
     }
