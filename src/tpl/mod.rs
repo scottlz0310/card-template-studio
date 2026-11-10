@@ -14,6 +14,8 @@
 mod body;
 mod codec;
 mod error;
+#[cfg(test)]
+mod experiment;
 mod export;
 mod format;
 mod header;

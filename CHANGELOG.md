@@ -15,6 +15,7 @@
 - 主要モジュール分割（#6）の前段として、現状の挙動を固定するテストを 17 件から 176 件に拡充。画面操作のテストには `egui_kittest`（dev-dependency）と、ウィンドウを使わない入力シミュレータを使う。
 
 - 実物の TMPEXP の値の分布を集計する調査用テスト `survey_real_samples`（`#[ignore]`、`CARD_TPL_SAMPLES` 指定時に手動実行。#18）。
+- 実機の差分実験用に、実物から調べたい値だけを変えた TPL を生成する調査用テスト `gen_picture_frame_experiment` / `dump_template` / `picture_combinations` を追加（`#[ignore]`、手動実行。#18）。
 
 ### Changed
 
