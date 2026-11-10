@@ -749,6 +749,58 @@ fn effect_props(ui: &mut egui::Ui, f: &mut Fmt) {
     }
 }
 
+/// 枠線の設定（複数選択用）。最初の文字項目の値を見せ、変えた項目だけをぜんぶの文字項目に当てる
+fn border_props_multi(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
+    let captions: Vec<usize> = idx
+        .iter()
+        .copied()
+        .filter(|&i| matches!(doc.template.objects[i].body, Body::Caption(_)))
+        .collect();
+    let Some(&first) = captions.first() else {
+        return;
+    };
+    section(ui, "枠線（まとめて変更）");
+    let before = {
+        let c = caption_ref(doc, first);
+        (c.border != 0, c.border_style)
+    };
+    let mut v = before;
+    ui.checkbox(&mut v.0, "枠線を引く");
+    if v.0
+        && let Some((col, w)) = &mut v.1
+    {
+        ui.horizontal(|ui| {
+            ui.label("色");
+            color_button(ui, col);
+            ui.label("太さ");
+            for (k, mm) in tpl::BORDER_WIDTHS_MM.iter().enumerate() {
+                ui.selectable_value(w, k as i32, format!("{mm} mm"));
+            }
+        });
+    }
+    if v != before {
+        doc.checkpoint(Some(&format!("border-{captions:?}")));
+        for &i in &captions {
+            let c = caption_mut(doc, i);
+            // 枠線の有無・色・太さは、それぞれ変えた方だけを当てる（有無が混ざっていても、太さだけ変えれば有無は保つ）
+            if v.0 != before.0 {
+                c.border = v.0 as i32;
+            }
+            // 色・太さは、変えた方だけを当てる。古い形式（色・太さを持たない）の物には足さない
+            if let (Some((c0, w0)), Some((c1, w1)), Some((col, w))) =
+                (before.1, v.1, c.border_style.as_mut())
+            {
+                if c1 != c0 {
+                    *col = c1;
+                }
+                if w1 != w0 {
+                    *w = w1;
+                }
+            }
+        }
+    }
+}
+
 /// 選んでいる行の真下に、同じ形の行を足すボタン（表組を 1 行ずつ伸ばす）
 fn add_row_button(ui: &mut egui::Ui, doc: &mut Document) {
     section(ui, "表組");
@@ -769,6 +821,7 @@ fn multi_caption_props(ui: &mut egui::Ui, doc: &mut Document) {
     {
         section(ui, "文字（まとめて変更）");
         font_props(ui, doc, &sel);
+        border_props_multi(ui, doc, &sel);
         add_row_button(ui, doc);
     }
 }
@@ -1052,6 +1105,66 @@ mod tests {
         h.get_by_label("この行の下に行を追加").click();
         h.run();
         assert_eq!(h.state().doc.template.objects.len(), 4);
+    }
+
+    #[test]
+    fn multi_selection_border_applies_only_the_changed_part() {
+        let mut a = CaptionBody::new("a", "", false, 12);
+        a.border_style = Some((0, 0));
+        let mut b = CaptionBody::new("b", "", false, 12);
+        b.border_style = Some((0x00ff, 1));
+        let mut legacy = CaptionBody::new("c", "", false, 12);
+        legacy.border_style = None;
+        let objs = [a, b, legacy]
+            .into_iter()
+            .enumerate()
+            .map(|(k, c)| Object::new(Body::Caption(c), [k as f64, 0.5, k as f64 + 0.9, 0.8]))
+            .collect();
+        let mut h = harness(objs, &[0, 1, 2]);
+        // 太さだけを変えると、色はそれぞれのまま。古い形式の物には、色・太さは足されない
+        h.get_by_label("0.7 mm").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border_style, Some((0, 2)));
+        assert_eq!(caption_body(&h, 1).border_style, Some((0x00ff, 2)));
+        assert_eq!(caption_body(&h, 2).border_style, None);
+        // 枠線を引くを切ると、ぜんぶ切れる
+        h.get_by_label("枠線を引く").click();
+        h.run();
+        for i in 0..3 {
+            assert_eq!(caption_body(&h, i).border, 0, "#{i}");
+        }
+    }
+
+    #[test]
+    fn multi_selection_border_keeps_a_mixed_on_off_state_when_only_the_width_changes() {
+        let mut on = CaptionBody::new("a", "", false, 12);
+        on.border = 1;
+        on.border_style = Some((0, 0));
+        let mut off = CaptionBody::new("b", "", false, 12);
+        off.border = 0;
+        off.border_style = Some((0, 0));
+        let objs = [on, off]
+            .into_iter()
+            .enumerate()
+            .map(|(k, c)| Object::new(Body::Caption(c), [k as f64, 0.5, k as f64 + 0.9, 0.8]))
+            .collect();
+        // 先頭は枠線あり、2 つ目は枠線なし。太さだけを変えても、2 つ目に枠線は付かない
+        let mut h = harness(objs, &[0, 1]);
+        h.get_by_label("0.7 mm").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border, 1);
+        assert_eq!(caption_body(&h, 0).border_style, Some((0, 2)));
+        assert_eq!(caption_body(&h, 1).border, 0);
+        assert_eq!(caption_body(&h, 1).border_style, Some((0, 2)));
+        // 有無を変えたときは、ぜんぶに当たる
+        h.get_by_label("枠線を引く").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border, 0);
+        assert_eq!(caption_body(&h, 1).border, 0);
+        h.get_by_label("枠線を引く").click();
+        h.run();
+        assert_eq!(caption_body(&h, 0).border, 1);
+        assert_eq!(caption_body(&h, 1).border, 1);
     }
     #[test]
     fn border_toggle_and_width_edit_caption() {
