@@ -36,8 +36,23 @@ fn dump_template() {
     for (i, o) in t.objects.iter().enumerate() {
         match &o.body {
             Body::Picture(p) => println!(
-                "#{i} 写真枠 link={} rect={:?} b8={} bc={:#x} cc={:#x} d4={} d8={} e0={:#x} e8={} ec={:?}",
-                o.link, o.rect, p.frame_style, p.border_color, p.cc, p.d4, p.d8, p.e0, p.e8, p.ec
+                "#{i} 写真枠 link={} rect={:?} b8={} bc={:#x} cc={:#x} d0={} d4={} d8={} e0={:#x} e8={} ec={:?} guid={:?} c4={:?} path={:?} dc={:?} e4={:?}",
+                o.link,
+                o.rect,
+                p.frame_style,
+                p.border_color,
+                p.cc,
+                p.d0,
+                p.d4,
+                p.d8,
+                p.e0,
+                p.e8,
+                p.ec,
+                p.guid.to_string_lossy(),
+                p.c4.to_string_lossy(),
+                p.path.to_string_lossy(),
+                p.dc.to_string_lossy(),
+                p.e4.to_string_lossy()
             ),
             Body::Caption(c) => {
                 println!(
@@ -459,4 +474,54 @@ fn fmt_12_13_18_per_template() {
         }
     }
     println!("テンプレート内で揃っている: {uniform} 件 / 混在: {mixed} 件");
+}
+
+/// 写真枠の `cc` / `d0` / `d4` / `d8` / `e8` を枠ごとに変えた TPL（1x3 縦、4 列 × 4 行）を作る。
+/// 写真を貼ったときの見え方（切り抜き・収め方・向き）を比べるための実験。枠は全部同じ大きさ。
+#[test]
+#[ignore = "CARD_TPL_SAMPLES に実物の TMPEXP と、CARD_TPL_EXPERIMENT_OUT が要る。調査用の手動実行"]
+fn gen_picture_photo_experiment() {
+    let out = PathBuf::from(
+        std::env::var("CARD_TPL_EXPERIMENT_OUT").expect("CARD_TPL_EXPERIMENT_OUT が未設定"),
+    );
+    // (cc, d0, d4, d8, e8)
+    const NONE: u32 = 0xffff_ffff;
+    let cases: [(u32, u32, u32, u32, u32); 16] = [
+        (0, 0, 0, 0, 3),
+        (0, 0, 0, 0, 0),
+        (0, 0, 0, 0, 1),
+        (0, 0, 0, 0, 2),
+        (0, 0, 0, 0, 4),
+        (0, 0, 0, 0, 5),
+        (0, 0, 0, 0, 6),
+        (0, 0, 0, 0, 7),
+        (1, 0, 0, 0, 3),
+        (2, 0, 0, 0, 3),
+        (3, 0, 0, 0, 3),
+        (NONE, 0, 0, 0, 3),
+        (0, 0, 1280, 960, 3),
+        (0, 0, 100, 100, 3),
+        (0, 0, 1280, 960, 4),
+        (0, 1, 0, 0, 3),
+    ];
+    let mut t = read_template("TEMP1x3_V/写真のみ.TPL");
+    let base = t.objects.remove(0);
+    let Body::Picture(base_body) = &base.body else {
+        panic!("写真のみ.TPL の先頭が写真枠でない")
+    };
+    t.objects.clear();
+    for (i, (cc, d0, d4, d8, e8)) in cases.iter().enumerate() {
+        let (col, row) = ((i % 4) as f64, (i / 4) as f64);
+        let (x, y) = (0.1 + col * 2.0, 0.1 + row * 0.95);
+        let mut o = base.clone();
+        o.rect = [x, y, x + 1.9, y + 0.9];
+        let mut b = base_body.clone();
+        b.frame_style = 0x11;
+        b.border_color = 0x0000ff;
+        (b.cc, b.d0, b.d4, b.d8, b.e8) = (*cc, *d0, *d4, *d8, *e8);
+        o.body = Body::Picture(b);
+        t.objects.push(o);
+    }
+    let p = write_template(&out, "TEMP1x3_V", "実験_写真設定", &t);
+    println!("{}", p.display());
 }
