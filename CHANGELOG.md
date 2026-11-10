@@ -16,9 +16,11 @@
 
 - 実物の TMPEXP の値の分布を集計する調査用テスト `survey_real_samples`（`#[ignore]`、`CARD_TPL_SAMPLES` 指定時に手動実行。#18）。
 - 集計テストに、文字項目の `is_value` と項目名・表示文字の関係の列、および `is_value` / `t108` が `-1` の部品を一覧する `list_odd_captions` を追加（#18）。
+- 実機の差分実験用に、実物から調べたい値だけを変えた TPL を生成する調査用テスト（`gen_picture_frame_*` / `dump_template` / `picture_combinations`）を追加（`#[ignore]`、手動実行。#18）。
 
 ### Changed
 
+- Codecov の集計対象から、手動実行専用の実験用テスト `src/tpl/experiment.rs` を除外。
 - Codecov の集計対象から、手動実行専用の集計テスト `src/tpl/survey.rs` を除外。
 - Codecov の集計対象から、OS のネイティブダイアログを呼ぶだけの `src/app/dialogs.rs` を除外（`src/main.rs` と同じ扱い）。
 - ファイル・フォルダ選択と上書き確認のダイアログを `Dialogs` trait 越しにし（本体の実装は `rfd` を呼ぶ `NativeDialogs` に集約）、テストでは差し替えられるようにした（#6）。挙動は変わらない。

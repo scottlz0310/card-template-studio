@@ -30,6 +30,8 @@ coverage:
     - "src/app/dialogs.rs"
     # 実物のサンプルが要る手動実行専用の集計（#[ignore]）。通常の CI では走らない
     - "src/tpl/survey.rs"
+    # 実物と本体が要る手動実行専用の実験用 TPL 生成（#[ignore]）。通常の CI では走らない
+    - "src/tpl/experiment.rs"
 
 comment:
   layout: "reach,diff,flags,tree"
