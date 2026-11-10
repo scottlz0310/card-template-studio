@@ -51,6 +51,9 @@ impl Default for PictureBody {
     }
 }
 
+/// 新規の文字項目のフォント。本体（Ver.25）が新規に作る文字項目と同じ
+pub const DEFAULT_FACE: &str = "メイリオ";
+
 /// 写真枠の形（`frame_style` の下位 4 ビット）。範囲外（4〜15）は本体が四角で描く
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PictureShape {
@@ -168,7 +171,7 @@ impl CaptionBody {
     pub fn new(text: &str, field: &str, is_value: bool, size_pt: u16) -> Self {
         Self {
             text: SjisString::from_str(text),
-            face: string_to_fixed("ＭＳ Ｐゴシック"),
+            face: string_to_fixed(DEFAULT_FACE),
             fmt: default_format(size_pt),
             value: SjisString::from_str("0"),
             field: SjisString::from_str(field),

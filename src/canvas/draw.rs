@@ -16,6 +16,7 @@ pub fn color(c: u32) -> Color32 {
 
 pub fn font_family(face: &str) -> FontFamily {
     let key = match face {
+        f if f.contains("メイリオ") || f.to_ascii_lowercase().contains("meiryo") => "meiryo",
         f if f.contains("明朝") && (f.contains('Ｐ') || f.contains('P')) => "pmincho",
         f if f.contains("明朝") => "mincho",
         f if f.contains("ゴシック") && !(f.contains('Ｐ') || f.contains('P')) => "gothic",

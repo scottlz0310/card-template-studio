@@ -30,6 +30,10 @@ fn snapping_picks_nearest_target() {
 #[test]
 fn font_family_from_face_name() {
     let cases = [
+        ("メイリオ", "meiryo"),
+        ("Meiryo UI", "meiryo"),
+        ("游ゴシック", "gothic"),
+        ("游明朝", "mincho"),
         ("ＭＳ Ｐゴシック", "pgothic"),
         ("ＭＳ ゴシック", "gothic"),
         ("ＭＳ Ｐ明朝", "pmincho"),

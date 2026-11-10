@@ -844,7 +844,7 @@ fn picture_frame_style_roundtrips_unchanged() {
 
 /// 新規の写真枠・文字項目の既定値は、本体（現場編集長 CALSMASTER Ver.25）が
 /// 「通常レイアウトの作成」で作った TPL の値と同じ（実機の生成物から。#18）。
-/// 違いはフォント名だけで、本体は「メイリオ」、このアプリは「ＭＳ Ｐゴシック」。
+/// フォント名も同じ（メイリオ）。
 #[test]
 fn new_part_defaults_match_the_real_app() {
     let p = PictureBody::default();
@@ -869,5 +869,7 @@ fn new_part_defaults_match_the_real_app() {
             (is_value as i32, 0, 1, 0, Some((0, 0)))
         );
         assert_eq!(c.value.to_string_lossy(), "0");
+        assert_eq!(fixed_to_string(&c.face), "メイリオ");
+        assert_eq!(fixed_to_string(&c.face), DEFAULT_FACE);
     }
 }
