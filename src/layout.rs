@@ -157,21 +157,6 @@ pub fn a4_division(h: &Header) -> (f64, f64) {
     (pw / h.cols.max(1) as f64, ph / h.rows.max(1) as f64)
 }
 
-/// 新規作成で選べるレイアウト（本体の「１ページに横○枚、縦○枚」に合わせた候補）
-pub const PRESETS: &[(u16, u16, bool)] = &[
-    (1, 3, true),
-    (1, 2, true),
-    (1, 4, true),
-    (1, 1, true),
-    (2, 3, true),
-    (3, 4, true),
-    (4, 5, true),
-    (5, 5, true),
-    (1, 1, false),
-    (2, 1, false),
-    (2, 2, false),
-];
-
 pub fn layout_label(cols: u16, rows: u16, portrait: bool) -> String {
     format!(
         "横{cols}×縦{rows}（{}）",
@@ -281,14 +266,9 @@ mod tests {
     }
 
     #[test]
-    fn presets_are_unique_and_labelled() {
-        let set: std::collections::BTreeSet<_> = PRESETS.iter().collect();
-        assert_eq!(set.len(), PRESETS.len());
+    fn layout_label_names_division_and_orientation() {
         assert_eq!(layout_label(1, 3, true), "横1×縦3（縦向き）");
         assert_eq!(layout_label(2, 1, false), "横2×縦1（横向き）");
-        for &(c, r, p) in PRESETS {
-            assert!(c >= 1 && r >= 1, "{c}x{r} {p}");
-        }
     }
 
     #[test]
