@@ -442,7 +442,8 @@ impl Document {
         let dy = bottom - top;
         // 足した行と重なる部品だけを、重ならない位置まで押し下げる。押した部品に重なる、さらに下の部品も
         // 同じ規則で連鎖して押す（空きが足りるなら、だれも動かない）。上端が選んだ行の下端以上にある部品が対象。
-        // 上から順に見るので、押された部品の新しい位置は、あとの部品の判定にそのまま使える
+        // 上から順に見るので、押された部品の新しい位置は、あとの部品の判定にそのまま使える。1 つの部品は、
+        // 押し下げた位置でも、先に動いた部品と重ならなくなるまで、押し下げる量を増やして確かめる
         let mut candidates: Vec<usize> = (0..self.template.objects.len())
             .filter(|&j| {
                 !sel.contains(&j)
@@ -458,15 +459,23 @@ impl Document {
         let mut shifts: Vec<(usize, f64)> = Vec::new();
         for j in candidates {
             let r = self.template.objects[j].normalized();
-            let by = placed
-                .iter()
-                .filter(|p| {
-                    p[2].min(r[2]) - p[0].max(r[0]) > ROW_BELOW_EPS
-                        && p[1] < r[3] - ROW_BELOW_EPS
-                        && p[3] > r[1] + ROW_BELOW_EPS
-                })
-                .map(|p| p[3] - r[1])
-                .fold(0.0, f64::max);
+            let mut by = 0.0_f64;
+            loop {
+                let next = placed
+                    .iter()
+                    .filter(|p| {
+                        p[2].min(r[2]) - p[0].max(r[0]) > ROW_BELOW_EPS
+                            && p[1] < r[3] + by - ROW_BELOW_EPS
+                            && p[3] > r[1] + by + ROW_BELOW_EPS
+                    })
+                    .map(|p| p[3] - r[1])
+                    .fold(by, f64::max);
+                // 重なる相手の下端が、今の位置より必ず下なので、量は増え続け、いつか止まる
+                if next <= by {
+                    break;
+                }
+                by = next;
+            }
             if by > 0.0 {
                 placed.push([r[0], r[1] + by, r[2], r[3] + by]);
                 shifts.push((j, by));
@@ -1546,6 +1555,78 @@ mod tests {
                 assert_eq!(d.template.objects[i].rect, *r, "{name}");
             }
             assert!(!d.can_undo(), "{name}");
+        }
+    }
+
+    #[test]
+    fn add_row_below_keeps_the_pushed_parts_from_overlapping_each_other() {
+        // 選んだ行は y 0〜0.5 in（足す行は y 0.5〜1.0）。高さの違う部品が続くとき、押された部品どうしも重ならない
+        type Case = (&'static str, Vec<[f64; 4]>, Vec<f64>);
+        let cases: Vec<Case> = vec![
+            (
+                "高さの違う 2 つが続く（A は足す行に押され、B は押された A の下へ）",
+                vec![[0.0, 0.5, 2.0, 0.6], [0.0, 0.6, 2.0, 0.7]],
+                vec![0.5, 0.5],
+            ),
+            (
+                "高さの違う 3 つが続く",
+                vec![
+                    [0.0, 0.5, 2.0, 0.6],
+                    [0.0, 0.6, 2.0, 0.75],
+                    [0.0, 0.75, 2.0, 0.8],
+                ],
+                vec![0.5, 0.5, 0.5],
+            ),
+            (
+                "続く 2 つの間に隙間がある（B は足す行を避けたあと、押された A も避ける）",
+                vec![[0.0, 0.5, 2.0, 0.6], [0.0, 0.65, 2.0, 0.7]],
+                vec![0.5, 0.45],
+            ),
+            (
+                "押された部品が、離れていた下の部品に重なる",
+                vec![[0.0, 0.5, 2.0, 0.6], [0.0, 1.05, 2.0, 1.3]],
+                vec![0.5, 0.05],
+            ),
+            (
+                "押された幅の広い部品が、横にずれた下の部品に重なる",
+                vec![
+                    [0.0, 0.5, 1.0, 0.6],
+                    [0.5, 0.6, 3.0, 0.7],
+                    [2.0, 1.0, 3.0, 1.2],
+                ],
+                vec![0.5, 0.5, 0.2],
+            ),
+        ];
+        for (name, rects, shifts) in cases {
+            let mut d = Document::new(Template::default(), "t", None);
+            let (a, b) = d.add_field_row("工種", (0.0, 0.0), 0.5, 1.5, 0.5);
+            let others: Vec<usize> = rects
+                .iter()
+                .map(|r| d.add_caption("別", "", false, *r))
+                .collect();
+            d.selection = [a, b].into();
+            d.undo.clear();
+            assert!(d.add_row_below(), "{name}: {:?}", d.notice);
+            for ((&i, r), by) in others.iter().zip(&rects).zip(&shifts) {
+                let got = d.template.objects[i].rect;
+                let want = [r[0], r[1] + by, r[2], r[3] + by];
+                assert!(
+                    got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-9),
+                    "{name}: {got:?} != {want:?}"
+                );
+            }
+            // 足した行と、動かした部品のどの 2 つも重ならない
+            let after: Vec<[f64; 4]> = (others[0]..d.template.objects.len())
+                .filter(|i| !(*i == a || *i == b))
+                .map(|i| d.template.objects[i].normalized())
+                .collect();
+            for (m, p) in after.iter().enumerate() {
+                for q in &after[m + 1..] {
+                    let overlap = p[2].min(q[2]) - p[0].max(q[0]) > 1e-6
+                        && p[3].min(q[3]) - p[1].max(q[1]) > 1e-6;
+                    assert!(!overlap, "{name}: {p:?} と {q:?} が重なる");
+                }
+            }
         }
     }
 
