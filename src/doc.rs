@@ -852,8 +852,13 @@ const STARTER_FIELDS: [&str; 5] = ["工種", "種別", "写真タイトル", "�
 const WIDE_CARD_ASPECT: f64 = 2.0;
 /// 最初の形の余白・写真と表のすきま（インチ）
 const STARTER_MARGIN: f64 = 0.1;
-/// 12pt で「写真タイトル」（6 文字）が収まる項目名の幅（インチ）
-const STARTER_LABEL_MIN: f64 = 1.1;
+/// 見本の文字の大きさ（pt）。小さいカードでは幅に合わせて縮め、下限は `STARTER_MIN_SIZE_PT`
+const STARTER_SIZE_PT: f64 = 12.0;
+const STARTER_MIN_SIZE_PT: f64 = 4.0;
+/// 項目名の列が、描ける幅（左右の余白を除く）の何割までを使ってよいか
+const STARTER_LABEL_MAX_RATIO: f64 = 0.55;
+/// 文字項目が、左右・上下の内側に取る余白の合計（pt）。描画側は 0.5 mm ずつ = 約 2.83 pt なので切り上げる
+const CAPTION_PAD_PT: f64 = 3.0;
 
 /// 写真枠 1 つと、項目名・項目値の行を並べた最初の形。カードの縦横比で、実物に多い並べ方を選ぶ
 /// （横長は写真が左・表が右、それ以外は写真が上・表が下）
@@ -881,22 +886,39 @@ pub fn starter_template(header: Header) -> Template {
             doc.add_field_row(f, (x, m + k as f64 * row_h), label_w, value_w, row_h);
         }
     } else {
-        // 小さいカードでも、写真が高さの半分ほどは残るよう、行の高さを縮める
-        let row_h = 0.25_f64.min((h - 2.0 * m - STARTER_MARGIN) * 0.45 / rows);
+        // 項目名（最長の「写真タイトル」）が折り返さず 1 行で収まるよう、文字の大きさを幅に合わせて縮める。
+        // 折り返すと、縮めた行からはみ出して後半が欠ける
+        let avail = w - 2.0 * m;
+        let longest = STARTER_FIELDS
+            .iter()
+            .map(|f| f.chars().count())
+            .max()
+            .unwrap_or(1) as f64;
+        let size = ((avail * 72.0 * STARTER_LABEL_MAX_RATIO - CAPTION_PAD_PT) / longest)
+            .floor()
+            .clamp(STARTER_MIN_SIZE_PT, STARTER_SIZE_PT);
+        let label_w = ((longest * size + CAPTION_PAD_PT) / 72.0)
+            .max(avail * 0.32)
+            .min(avail * 0.8);
+        let value_w = avail - label_w;
+        // 行の高さは、文字の高さが入る分を下限にして、残りで写真の高さを半分ほど残すよう縮める
+        let row_min = (size * 1.1 + CAPTION_PAD_PT) / 72.0;
+        let row_h = row_min.max(0.25_f64.min((h - 2.0 * m - STARTER_MARGIN) * 0.45 / rows));
         let table_top = h - m - row_h * rows;
         doc.add_picture([m, m, w - m, table_top - STARTER_MARGIN]);
-        let avail = w - 2.0 * m;
-        // 小さいカードでも、項目名（最長の「写真タイトル」）が切れないよう幅を確保する。ただし値の列を食い潰さない
-        let label_w = (avail * 0.32).max((avail * 0.55).min(STARTER_LABEL_MIN));
-        let value_w = avail - label_w;
         for (k, f) in STARTER_FIELDS.iter().enumerate() {
-            doc.add_field_row(
+            let (a, b) = doc.add_field_row(
                 f,
                 (m, table_top + k as f64 * row_h),
                 label_w,
                 value_w,
                 row_h,
             );
+            for i in [a, b] {
+                if let Body::Caption(c) = &mut doc.template.objects[i].body {
+                    tpl::Fmt(&mut c.fmt).set_u16(tpl::fmt_off::SIZE, size as u16);
+                }
+            }
         }
     }
     doc.template
