@@ -8,7 +8,9 @@
 
 use crate::canvas::{GRID_MM_RANGE, View};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// `%APPDATA%` の下に作るフォルダ名。eframe の永続化（`run_native` の名前）と同じにして、1 か所にまとめる
 pub const APP_DIR: &str = "card-template-studio";
@@ -158,15 +160,46 @@ impl SettingsStore for FileStore {
             std::fs::create_dir_all(dir)
                 .map_err(|e| format!("{} を作れません: {e}", dir.display()))?;
         }
-        // 書き込み中に止まっても、元のファイルを壊さないよう、一時ファイルに書いてから置き換える
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, json).map_err(|e| format!("{} に書けません: {e}", tmp.display()))?;
+        // 書き込み中に止まっても、元のファイルを壊さないよう、一時ファイルに書いてから置き換える。
+        // 複数のアプリを同時に起動していても、書き込みが交錯しないよう、保存ごとに固有の名前で
+        // 排他的に作り（すでにあればエラー）、置き換えと削除は、自分が作った一時ファイルだけに行う
+        let tmp = temp_path(path);
+        write_new(&tmp, json.as_bytes())
+            .map_err(|e| format!("{} に書けません: {e}", tmp.display()))?;
         std::fs::rename(&tmp, path).map_err(|e| {
-            // 置き換えに失敗した一時ファイルを残さない。ここでの失敗は、上の本来のエラーを隠さないよう無視する
+            // 置き換えに失敗した一時ファイルを残さない。ここでの失敗は、本来のエラーを隠さないよう無視する
             let _ = std::fs::remove_file(&tmp);
             format!("{} に書けません: {e}", path.display())
         })
     }
+}
+
+/// 保存ごとに固有の一時ファイル名（`settings.json.<プロセス ID>.<連番>.tmp`）。
+/// プロセス ID が別の起動と、連番が同じプロセスの別の保存と、名前が重ならないようにする
+fn temp_path(path: &Path) -> PathBuf {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    path.with_file_name(name)
+}
+
+/// 新しいファイルを作って書く。同じ名前がすでにあれば、上書きせずにエラーにする。
+/// 書き込みに失敗したら、作ったファイルを消す（失敗の原因を隠さないよう、消す失敗は無視する）
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    if written.is_err() {
+        drop(file);
+        let _ = std::fs::remove_file(path);
+    }
+    written
 }
 
 /// テスト用: メモリに保存し、呼ばれ方を記録する。app とテストで同じ状態を共有できる
@@ -395,9 +428,132 @@ mod tests {
             .save(&Settings::default())
             .expect_err("置き換え先がフォルダ");
         assert!(err.contains("に書けません"), "{err}");
-        assert!(
-            !blocked.join("settings.json.tmp").exists(),
+        assert_eq!(
+            entries(&blocked),
+            ["settings.json"],
             "失敗した一時ファイルを残さない"
+        );
+    }
+
+    /// フォルダの中のファイル名（並べ替え済み）
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn every_save_uses_its_own_temporary_file_name() {
+        let path = Path::new(r"C:\data\settings.json");
+        let names: Vec<_> = (0..100).map(|_| temp_path(path)).collect();
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "名前が重ならない");
+        for n in &names {
+            assert_eq!(n.parent(), path.parent(), "置き換え先と同じフォルダ");
+            let file = n.file_name().unwrap().to_string_lossy();
+            assert!(
+                file.starts_with("settings.json.") && file.ends_with(".tmp"),
+                "{file}"
+            );
+            assert!(file.contains(&std::process::id().to_string()), "{file}");
+        }
+    }
+
+    #[test]
+    fn write_new_refuses_to_overwrite_an_existing_file() {
+        let dir = TempDir::new("settings-write-new");
+        let path = dir.path().join("x.tmp");
+        std::fs::write(&path, "他の起動の書き込み途中").unwrap();
+        let err = write_new(&path, b"new").expect_err("すでにある");
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "他の起動の書き込み途中",
+            "中身に触れない"
+        );
+    }
+
+    #[test]
+    fn saving_never_touches_another_instances_temporary_file() {
+        // 別の起動が書き込み中の一時ファイル（固定名だった頃の名前を含む）を、読まず・書かず・消さない
+        let dir = TempDir::new("settings-foreign-tmp");
+        let path = dir.path().join("settings.json");
+        let foreign = ["settings.json.tmp", "settings.json.99999.0.tmp"];
+        for name in foreign {
+            std::fs::write(dir.path().join(name), "書き込み途中の長い長い内容").unwrap();
+        }
+        let store = FileStore::at(path);
+        store.save(&sample()).expect("保存");
+        assert_eq!(store.load().unwrap(), sample());
+        for name in foreign {
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join(name)).unwrap(),
+                "書き込み途中の長い長い内容",
+                "{name}"
+            );
+        }
+        assert_eq!(
+            entries(dir.path()),
+            [
+                "settings.json",
+                "settings.json.99999.0.tmp",
+                "settings.json.tmp"
+            ]
+        );
+    }
+
+    #[test]
+    fn concurrent_saves_of_different_lengths_leave_one_complete_json() {
+        // 複数起動の再現: 長さの違う設定を、同時に何度も保存する。壊れた JSON や、一時ファイルが残らないこと
+        let dir = TempDir::new("settings-concurrent");
+        let path = dir.path().join("settings.json");
+        let long = Settings {
+            folders: Folders {
+                library: Some(PathBuf::from(format!(
+                    r"C:\{}",
+                    "長いフォルダ名".repeat(300)
+                ))),
+                export_dest: Some(PathBuf::from(format!(r"D:\{}", "出力".repeat(300)))),
+            },
+            ..sample()
+        };
+        let short = Settings::default();
+        let errors = std::sync::Mutex::new(Vec::<String>::new());
+        let saved = AtomicU64::new(0);
+        std::thread::scope(|s| {
+            for t in 0..8 {
+                let (path, long, short, errors, saved) = (&path, &long, &short, &errors, &saved);
+                s.spawn(move || {
+                    let store = FileStore::at(path.clone());
+                    for i in 0..30 {
+                        let value = if (t + i) % 2 == 0 { long } else { short };
+                        match store.save(value) {
+                            Ok(()) => {
+                                saved.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(e) => errors.lock().unwrap().push(e),
+                        }
+                    }
+                });
+            }
+        });
+        assert!(
+            saved.load(Ordering::Relaxed) > 0,
+            "少なくとも一部は成功する"
+        );
+        // 同時に置き換えると、OS が一部を拒否することがある。そのときは、壊さずにエラーで返る
+        for e in errors.lock().unwrap().iter() {
+            assert!(e.contains("に書けません"), "{e}");
+        }
+        let loaded = FileStore::at(path).load().expect("壊れていない JSON");
+        assert!(loaded == long || loaded == short, "どちらかの完全な内容");
+        assert_eq!(
+            entries(dir.path()),
+            ["settings.json"],
+            "一時ファイルが残らない"
         );
     }
 
