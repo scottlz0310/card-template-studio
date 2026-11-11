@@ -16,7 +16,7 @@ mod view;
 pub use show::show;
 pub use state::{CanvasAction, CanvasState};
 pub use tool::{TableSpec, Tool};
-pub use view::View;
+pub use view::{GRID_MM_RANGE, View};
 
 /// 1 インチあたりの画面ピクセル（倍率 100%）
 pub const PX_PER_INCH: f32 = 96.0;

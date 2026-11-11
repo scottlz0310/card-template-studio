@@ -3,6 +3,9 @@
 use super::PX_PER_INCH;
 use egui::{Pos2, Rect, Vec2, vec2};
 
+/// 方眼の間隔（mm）として選べる範囲。メニューの入力欄と、保存した設定の検査で共通に使う
+pub const GRID_MM_RANGE: std::ops::RangeInclusive<f32> = 0.5..=20.0;
+
 pub struct View {
     pub zoom: f32,
     pub pan: Vec2,

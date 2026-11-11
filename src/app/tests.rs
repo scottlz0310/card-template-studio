@@ -1,4 +1,5 @@
 use super::*;
+use crate::settings::memory::MemoryStore;
 use crate::test_support::TempDir;
 use crate::tpl::{KIND_CAPTION, KIND_PICTURE};
 use egui_kittest::Harness;
@@ -12,7 +13,14 @@ fn harness_with(open: Option<PathBuf>, screenshot: Option<PathBuf>) -> H {
         .allow_missing_glyphs()
         .with_accessibility_check(true)
         .with_max_steps(30)
-        .build_eframe(move |cc| StudioApp::new(&cc.egui_ctx, open, screenshot));
+        .build_eframe(move |cc| {
+            StudioApp::new(
+                &cc.egui_ctx,
+                open,
+                screenshot,
+                Box::new(MemoryStore::default()),
+            )
+        });
     if h.state().shot.is_some() {
         // 画面を撮るモードは常に再描画を求めるので、落ち着くのを待たない
         h.step();
@@ -948,7 +956,7 @@ fn insert_table_buttons_stay_reachable_with_many_rows_at_the_minimum_window_size
         .with_max_steps(30)
         .build_eframe(move |cc| {
             crate::install_fonts(&cc.egui_ctx);
-            StudioApp::new(&cc.egui_ctx, None, None)
+            StudioApp::new(&cc.egui_ctx, None, None, Box::new(MemoryStore::default()))
         });
     h.run();
     app(&mut h).canvas.table.fields = (0..20).map(|_| "工種".to_string()).collect();
@@ -1002,7 +1010,7 @@ fn new_template_buttons_stay_reachable_with_the_free_division_inputs_at_the_mini
         .with_max_steps(30)
         .build_eframe(move |cc| {
             crate::install_fonts(&cc.egui_ctx);
-            StudioApp::new(&cc.egui_ctx, None, None)
+            StudioApp::new(&cc.egui_ctx, None, None, Box::new(MemoryStore::default()))
         });
     h.run();
     app(&mut h).run_pending(Pending::New);

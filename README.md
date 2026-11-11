@@ -22,7 +22,7 @@ scoop install card-template-studio
 
 - 更新は `scoop update card-template-studio`、削除は `scoop uninstall card-template-studio`。
 - スタートメニューに「Card Template Studio」のショートカットができる。コマンドラインからは `card-template-studio` で起動できる。
-- Scoop は Release の ZIP をダウンロードするときに、`.sha256` でチェックサムを照合する。
+- Scoop は、インストールのときに、ZIP の SHA-256 をマニフェストに記録された値と照合する（バケットの自動更新が、Release の `.sha256` から値を取る）。
 - Scoop が取得したファイルには、ブラウザのダウンロードの印が付かないため、下の SmartScreen の警告は出にくい。
 
 ### ZIP から導入する
@@ -71,6 +71,21 @@ cargo install --git https://github.com/scottlz0310/card-template-studio --locked
 ```
 card-template-studio.exe 名前.TPL
 ```
+
+## 設定の保存
+
+次の項目を、起動のたびに引き継ぐ。保存先は `%APPDATA%\card-template-studio`（インストールや更新で消えない）。
+
+| 項目                                                                                               | ファイル        |
+| -------------------------------------------------------------------------------------------------- | --------------- |
+| ウィンドウの大きさ・位置・最大化                                                                   | `data\app.ron`  |
+| 最後に開いた TMPEXP フォルダ、最後の書き出し先（ファイルダイアログの開始位置）                     | `settings.json` |
+| 表示の設定（方眼の表示・間隔、方眼・部品への吸着、既存テンプレートの配置範囲、項目値の見本の文字） | `settings.json` |
+
+- テンプレートの内容は、保存しない（業務データを設定に残さない）。拡大率とスクロール位置も、カードに合わせて決まるので保存しない。
+- `settings.json` が読めない・書けないときは、画面に知らせる。読めないときは、既定の設定で起動し、次に設定が変わると、そのファイルは新しい内容で上書きされる。
+- ウィンドウの位置が、保存したときと違うモニター構成で画面の外になる場合は、画面の中に収めて開く。この処理と `app.ron` の読み書きは eframe の機能で、失敗しても画面には知らせない（既定の大きさ・位置で起動する）。
+- 設定を初期状態に戻すには、アプリを終了して、`%APPDATA%\card-template-studio` フォルダを削除する。
 
 ## 開発
 

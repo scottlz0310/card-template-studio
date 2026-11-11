@@ -151,7 +151,7 @@ impl StudioApp {
                     ui.label("方眼の間隔");
                     ui.add(
                         egui::DragValue::new(&mut self.view.grid_mm)
-                            .range(0.5..=20.0)
+                            .range(GRID_MM_RANGE)
                             .speed(0.1)
                             .suffix(" mm"),
                     );

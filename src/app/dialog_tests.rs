@@ -3,6 +3,8 @@
 use super::dialogs::Dialogs;
 use super::files::{export_items, export_with_confirm};
 use super::*;
+use crate::settings::memory::MemoryStore;
+use crate::settings::{FileStore, Folders, Settings, SettingsStore, ViewSettings};
 use crate::test_support::TempDir;
 use crate::tpl::KIND_CAPTION;
 use egui_kittest::Harness;
@@ -17,7 +19,7 @@ use std::rc::Rc;
 enum Call {
     Open(Option<PathBuf>),
     Save(Option<PathBuf>, String),
-    Folder(Option<String>),
+    Folder(Option<String>, Option<PathBuf>),
     Confirm(String, String),
 }
 
@@ -50,10 +52,11 @@ impl Dialogs for FakeDialogs {
             .push(Call::Save(dir.map(Path::to_path_buf), file_name.to_owned()));
         self.save.borrow_mut().pop_front()
     }
-    fn pick_folder(&self, title: Option<&str>) -> Option<PathBuf> {
-        self.calls
-            .borrow_mut()
-            .push(Call::Folder(title.map(str::to_owned)));
+    fn pick_folder(&self, title: Option<&str>, dir: Option<&Path>) -> Option<PathBuf> {
+        self.calls.borrow_mut().push(Call::Folder(
+            title.map(str::to_owned),
+            dir.map(Path::to_path_buf),
+        ));
         self.folder.borrow_mut().pop_front()
     }
     fn confirm(&self, title: &str, description: &str) -> bool {
@@ -72,8 +75,8 @@ impl Dialogs for Rc<FakeDialogs> {
     fn save_template(&self, dir: Option<&Path>, file_name: &str) -> Option<PathBuf> {
         (**self).save_template(dir, file_name)
     }
-    fn pick_folder(&self, title: Option<&str>) -> Option<PathBuf> {
-        (**self).pick_folder(title)
+    fn pick_folder(&self, title: Option<&str>, dir: Option<&Path>) -> Option<PathBuf> {
+        (**self).pick_folder(title, dir)
     }
     fn confirm(&self, title: &str, description: &str) -> bool {
         (**self).confirm(title, description)
@@ -83,6 +86,14 @@ impl Dialogs for Rc<FakeDialogs> {
 type H = Harness<'static, StudioApp>;
 
 fn harness(open: Option<PathBuf>) -> (H, Rc<FakeDialogs>) {
+    harness_with_store(open, MemoryStore::default())
+}
+
+/// 設定の保存先を、テストが握っている `MemoryStore` にして起動する
+fn harness_with_store(
+    open: Option<PathBuf>,
+    store: impl SettingsStore + 'static,
+) -> (H, Rc<FakeDialogs>) {
     let fake = Rc::new(FakeDialogs::default());
     let shared = fake.clone();
     let mut h = Harness::builder()
@@ -91,7 +102,7 @@ fn harness(open: Option<PathBuf>) -> (H, Rc<FakeDialogs>) {
         .with_accessibility_check(true)
         .with_max_steps(30)
         .build_eframe(move |cc| {
-            StudioApp::with_dialogs(&cc.egui_ctx, open, None, Box::new(shared))
+            StudioApp::with_dialogs(&cc.egui_ctx, open, None, Box::new(shared), Box::new(store))
         });
     h.run();
     (h, fake)
@@ -282,7 +293,10 @@ fn menu_and_panel_buttons_pick_a_folder_with_their_own_titles() {
     );
     assert_eq!(
         fake.calls(),
-        vec![Call::Folder(Some("TMPEXP フォルダを選んでください".into()))]
+        vec![Call::Folder(
+            Some("TMPEXP フォルダを選んでください".into()),
+            None
+        )]
     );
     assert_eq!(app(&mut h).library.as_ref().unwrap().entries.len(), 1);
 
@@ -291,7 +305,7 @@ fn menu_and_panel_buttons_pick_a_folder_with_their_own_titles() {
     fake.folder.borrow_mut().push_back(tmp.path().to_path_buf());
     h.get_by_label("📂 TMPEXP フォルダを開く…").click();
     h.run();
-    assert_eq!(fake.calls(), vec![Call::Folder(None)]);
+    assert_eq!(fake.calls(), vec![Call::Folder(None, None)]);
     assert!(app(&mut h).library.is_some());
 }
 
@@ -300,7 +314,7 @@ fn cancelling_the_folder_dialog_keeps_the_state() {
     let (mut h, fake) = harness(None);
     h.get_by_label("📂 TMPEXP フォルダを開く…").click();
     h.run();
-    assert_eq!(fake.calls(), vec![Call::Folder(None)]);
+    assert_eq!(fake.calls(), vec![Call::Folder(None, None)]);
     assert!(app(&mut h).library.is_none() && app(&mut h).modal.is_none());
 }
 
@@ -326,7 +340,10 @@ fn export_current_template_writes_a_tmpexp_folder() {
     let ctx = h.ctx.clone();
     fake.folder.borrow_mut().push_back(tmp.path().to_path_buf());
     app(&mut h).export_dialog(&ctx, false);
-    assert_eq!(fake.calls(), vec![Call::Folder(Some(EXPORT_TITLE.into()))]);
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Folder(Some(EXPORT_TITLE.into()), None)]
+    );
     assert!(
         tmp.path()
             .join("TMPEXP/TEMP1x3_V/新規テンプレート.TPL")
@@ -352,12 +369,18 @@ fn ctrl_e_and_the_menu_export_the_current_template() {
     let (mut h, fake) = harness(None);
     fake.folder.borrow_mut().push_back(tmp.path().to_path_buf());
     press(&mut h, Modifiers::COMMAND, Key::E);
-    assert_eq!(fake.calls(), vec![Call::Folder(Some(EXPORT_TITLE.into()))]);
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Folder(Some(EXPORT_TITLE.into()), None)]
+    );
     assert!(tmp.path().join("TMPEXP").exists());
 
     let (mut h, fake) = harness(None);
     open_menu(&mut h, "ファイル", "このテンプレートを本体用に書き出す");
-    assert_eq!(fake.calls(), vec![Call::Folder(Some(EXPORT_TITLE.into()))]);
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Folder(Some(EXPORT_TITLE.into()), None)]
+    );
 }
 
 #[test]
@@ -520,4 +543,246 @@ fn export_with_confirm_only_asks_on_a_name_clash() {
         1,
         "確認は同名のときの 1 回だけ（上の承諾分）"
     );
+}
+
+// ----- 設定の保存（最後に使ったフォルダ・表示の設定） -----
+
+fn saves(store: &MemoryStore) -> Vec<Settings> {
+    store.0.borrow().saves.clone()
+}
+
+fn custom_settings() -> Settings {
+    Settings {
+        folders: Folders {
+            library: Some(PathBuf::from(r"C:\last\TMPEXP")),
+            export_dest: Some(PathBuf::from(r"D:\out")),
+        },
+        view: ViewSettings {
+            show_grid: false,
+            grid_mm: 2.5,
+            snap_grid: false,
+            snap_objects: false,
+            show_used: false,
+            sample_values: true,
+        },
+    }
+}
+
+#[test]
+fn saved_settings_are_restored_at_startup_and_not_written_back() {
+    let store = MemoryStore::default();
+    store.0.borrow_mut().stored = custom_settings();
+    let (mut h, _) = harness_with_store(None, store.clone());
+    let a = app(&mut h);
+    assert_eq!(ViewSettings::of(&a.view), custom_settings().view);
+    assert_eq!(a.settings.folders, custom_settings().folders);
+    assert!(a.modal.is_none() && a.toast.is_none());
+    assert!(saves(&store).is_empty(), "読んだだけでは書かない");
+}
+
+#[test]
+fn unreadable_settings_start_with_defaults_and_tell_the_user() {
+    let store = MemoryStore::default();
+    store.0.borrow_mut().load_error = Some("settings.json の内容が不正です: 壊れている".into());
+    let (mut h, _) = harness_with_store(None, store.clone());
+    assert_eq!(modal_title(&h).as_deref(), Some("設定を読めませんでした"));
+    let body = modal_body(&h).expect("本文");
+    assert!(body.contains("壊れている"), "{body}");
+    assert!(body.contains("既定の設定で起動しました"), "{body}");
+    assert_eq!(ViewSettings::of(&app(&mut h).view), ViewSettings::default());
+    assert!(saves(&store).is_empty());
+}
+
+#[test]
+fn a_settings_error_does_not_hide_the_error_of_the_file_to_open() {
+    // 起動時に開けなかったファイルのエラーを、設定のエラーで上書きしない（設定は通知に回す）
+    let store = MemoryStore::default();
+    store.0.borrow_mut().load_error = Some("読めない".into());
+    let missing = TempDir::new("dlg-settings-open").path().join("無い.TPL");
+    let (mut h, _) = harness_with_store(Some(missing), store);
+    assert_eq!(modal_title(&h).as_deref(), Some("開けませんでした"));
+    let toast = app(&mut h).toast.clone().expect("toast").0;
+    assert!(toast.contains("設定を読めませんでした"), "{toast}");
+}
+
+#[test]
+fn view_changes_are_saved_once_per_change_and_zoom_is_not_saved() {
+    let store = MemoryStore::default();
+    let (mut h, _) = harness_with_store(None, store.clone());
+    app(&mut h).view.show_grid = false;
+    h.run();
+    h.run();
+    assert_eq!(saves(&store).len(), 1, "変えたときだけ、1 回");
+    assert!(!saves(&store)[0].view.show_grid);
+
+    app(&mut h).view.grid_mm = 5.0;
+    h.run();
+    assert_eq!(saves(&store).len(), 2);
+    assert_eq!(saves(&store)[1].view.grid_mm, 5.0);
+
+    // 拡大率・スクロール位置は、カードに合わせて決まる。変わっても保存しない
+    app(&mut h).view.zoom = 3.0;
+    app(&mut h).view.pan = egui::vec2(10.0, 10.0);
+    h.run();
+    assert_eq!(saves(&store).len(), 2);
+}
+
+#[test]
+fn a_failed_save_is_reported_once_and_retried_only_when_the_settings_change() {
+    let store = MemoryStore::default();
+    store.0.borrow_mut().save_error = Some("ディスクがいっぱいです".into());
+    let (mut h, _) = harness_with_store(None, store.clone());
+
+    app(&mut h).view.show_grid = false;
+    h.run();
+    let toast = app(&mut h).toast.take().expect("失敗を知らせる").0;
+    assert!(toast.contains("設定を保存できませんでした"), "{toast}");
+    assert!(toast.contains("ディスクがいっぱいです"), "{toast}");
+
+    h.run();
+    h.run();
+    assert_eq!(saves(&store).len(), 1, "同じ内容を、毎フレーム試し直さない");
+    assert!(app(&mut h).toast.is_none());
+
+    // 失敗が続いている間は、変えるたびに試すが、知らせは繰り返さない
+    app(&mut h).view.snap_grid = false;
+    h.run();
+    assert_eq!(saves(&store).len(), 2);
+    assert!(app(&mut h).toast.is_none());
+
+    // 直れば保存され、そのあとの失敗は、また知らせる
+    store.0.borrow_mut().save_error = None;
+    app(&mut h).view.snap_objects = false;
+    h.run();
+    assert_eq!(store.0.borrow().stored, saves(&store)[2]);
+    assert!(app(&mut h).toast.is_none());
+
+    store.0.borrow_mut().save_error = Some("再び書けません".into());
+    app(&mut h).view.show_used = false;
+    h.run();
+    let toast = app(&mut h).toast.take().expect("また知らせる").0;
+    assert!(toast.contains("再び書けません"), "{toast}");
+}
+
+#[test]
+fn opening_a_library_remembers_the_folder_for_the_next_dialog() {
+    let tmp = TempDir::new("dlg-remember-lib");
+    write_template(tmp.path(), "TEMP1x3_V", "a");
+    let store = MemoryStore::default();
+    let (mut h, fake) = harness_with_store(None, store.clone());
+    let menu = "エクスポートしたフォルダ（TMPEXP）を開く";
+    let title = "TMPEXP フォルダを選んでください";
+
+    fake.folder.borrow_mut().push_back(tmp.path().to_path_buf());
+    open_menu(&mut h, "ファイル", menu);
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Folder(Some(title.into()), None)],
+        "初回は開始位置の指定なし"
+    );
+    let last = saves(&store).pop().expect("保存された");
+    assert_eq!(last.folders.library.as_deref(), Some(tmp.path()));
+
+    fake.folder.borrow_mut().push_back(tmp.path().to_path_buf());
+    open_menu(&mut h, "ファイル", menu);
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Folder(
+            Some(title.into()),
+            Some(tmp.path().to_path_buf())
+        )],
+        "2 回目は、前に開いたフォルダから始める"
+    );
+}
+
+#[test]
+fn a_folder_without_templates_is_not_remembered() {
+    let tmp = TempDir::new("dlg-remember-empty");
+    let store = MemoryStore::default();
+    let (mut h, fake) = harness_with_store(None, store.clone());
+    fake.folder.borrow_mut().push_back(tmp.path().to_path_buf());
+    h.get_by_label("📂 TMPEXP フォルダを開く…").click();
+    h.run();
+    assert!(modal_title(&h).is_some());
+    assert!(saves(&store).is_empty());
+}
+
+#[test]
+fn the_open_dialog_starts_in_the_last_library_when_none_is_open() {
+    let store = MemoryStore::default();
+    store.0.borrow_mut().stored = custom_settings();
+    let (mut h, fake) = harness_with_store(None, store);
+    app(&mut h).open_dialog();
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Open(Some(PathBuf::from(r"C:\last\TMPEXP")))]
+    );
+}
+
+#[test]
+fn a_successful_export_remembers_the_destination() {
+    let dest = TempDir::new("dlg-remember-dest");
+    let store = MemoryStore::default();
+    let (mut h, fake) = harness_with_store(None, store.clone());
+    let ctx = h.ctx.clone();
+
+    fake.folder
+        .borrow_mut()
+        .push_back(dest.path().to_path_buf());
+    app(&mut h).export_dialog(&ctx, false);
+    h.run();
+    let last = saves(&store).pop().expect("保存された");
+    assert_eq!(last.folders.export_dest.as_deref(), Some(dest.path()));
+
+    fake.calls();
+    app(&mut h).export_dialog(&ctx, false);
+    assert_eq!(
+        fake.calls(),
+        vec![Call::Folder(
+            Some(EXPORT_TITLE.into()),
+            Some(dest.path().to_path_buf())
+        )],
+        "次は、前の書き出し先から始める"
+    );
+}
+
+#[test]
+fn settings_survive_a_restart_through_a_real_file() {
+    let dir = TempDir::new("dlg-settings-file");
+    let path = dir.path().join("settings.json");
+    {
+        let (mut h, _) = harness_with_store(None, FileStore::at(path.clone()));
+        let a = app(&mut h);
+        a.view.show_grid = false;
+        a.view.grid_mm = 3.0;
+        h.run();
+    }
+    let json = std::fs::read_to_string(&path).expect("保存された");
+    assert!(json.contains("\"grid_mm\": 3.0"), "{json}");
+
+    let (mut h, _) = harness_with_store(None, FileStore::at(path));
+    let a = app(&mut h);
+    assert!(!a.view.show_grid);
+    assert_eq!(a.view.grid_mm, 3.0);
+    assert!(a.modal.is_none());
+}
+
+#[test]
+fn a_corrupt_settings_file_is_reported_and_replaced_by_the_next_change() {
+    let dir = TempDir::new("dlg-settings-corrupt");
+    let path = dir.path().join("settings.json");
+    std::fs::write(&path, "{ 壊れた").unwrap();
+    let (mut h, _) = harness_with_store(None, FileStore::at(path.clone()));
+    assert_eq!(modal_title(&h).as_deref(), Some("設定を読めませんでした"));
+    assert!(modal_body(&h).unwrap().contains("settings.json"));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "{ 壊れた",
+        "起動しただけでは、ファイルに触れない"
+    );
+
+    app(&mut h).view.show_grid = false;
+    h.run();
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert!(after.contains("\"show_grid\": false"), "{after}");
 }
