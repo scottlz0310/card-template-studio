@@ -7,6 +7,9 @@ use crate::tpl::{
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+/// 行の真下かどうかを見るときの許容（インチ。0.025 mm）。端がぴったり接する行も「真下」に入れる
+const ROW_BELOW_EPS: f64 = 0.001;
+
 /// 本体のサンプルで使われている項目名（データベースの項目）
 pub const KNOWN_FIELDS: &[&str] = &[
     "写真タイトル",
@@ -134,6 +137,8 @@ pub struct Document {
     redo: Vec<Snapshot>,
     /// 同じ操作の連続（入力欄の打鍵など）を 1 回の「元に戻す」にまとめる印
     coalesce: Option<String>,
+    /// 操作が受け付けられなかった理由。画面が取り出して知らせる（元に戻す対象ではない）
+    pub notice: Option<String>,
 }
 
 impl Document {
@@ -147,6 +152,7 @@ impl Document {
             undo: Vec::new(),
             redo: Vec::new(),
             coalesce: None,
+            notice: None,
         }
     }
 
@@ -408,7 +414,9 @@ impl Document {
     }
 
     /// 選んだ文字項目（項目名・項目値の行）の真下に、同じ幅・高さ・書式の行を足す。項目は ROW_ORDER の次に進める。
-    /// 足した行を選び、「元に戻す」は 1 回で戻る。文字項目が選ばれていなければ何もしない（false）
+    /// 真下（行と左右が重なり、行の下端より下）にある部品は、足した行の高さだけ押し下げる。
+    /// 足した行を選び、「元に戻す」は 1 回で戻る。文字項目が選ばれていなければ何もしない（false）。
+    /// 押し下げた部品がカードの下端を超えるときは、何も変えずに理由を `notice` に入れる（false）
     pub fn add_row_below(&mut self) -> bool {
         let sel: Vec<usize> = self
             .selected_editable()
@@ -424,12 +432,44 @@ impl Document {
         } else {
             sel
         };
-        let (top, bottom) = sel.iter().fold((f64::MAX, f64::MIN), |(t, b), &i| {
-            let r = self.template.objects[i].normalized();
-            (t.min(r[1]), b.max(r[3]))
-        });
+        let (left, top, right, bottom) = sel.iter().fold(
+            (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+            |(l, t, r, b), &i| {
+                let o = self.template.objects[i].normalized();
+                (l.min(o[0]), t.min(o[1]), r.max(o[2]), b.max(o[3]))
+            },
+        );
         let dy = bottom - top;
+        // 行の真下にある部品。左右が重なるものだけを動かし、横に並ぶ別の列（左の写真など）は動かさない
+        let below: Vec<usize> = (0..self.template.objects.len())
+            .filter(|&j| {
+                if sel.contains(&j) || !self.editable(j) {
+                    return false;
+                }
+                let r = self.template.objects[j].normalized();
+                r[1] >= bottom - ROW_BELOW_EPS && r[2].min(right) - r[0].max(left) > ROW_BELOW_EPS
+            })
+            .collect();
+        let card_bottom = crate::layout::a4_division(&self.template.header).1;
+        let lowest = below
+            .iter()
+            .map(|&j| self.template.objects[j].normalized()[3])
+            .fold(bottom, f64::max)
+            + dy;
+        if lowest > card_bottom + ROW_BELOW_EPS {
+            self.notice = Some(format!(
+                "カードの下端に収まらないため、行を追加できません（あと {:.1} mm 足りません）。先に下の部品を減らすか、行の高さを小さくしてください",
+                (lowest - card_bottom) * tpl::MM_PER_INCH
+            ));
+            return false;
+        }
         self.checkpoint(None);
+        for j in below {
+            let o = &mut self.template.objects[j];
+            // normalized() の向きに関わらず、上下の端をそのまま dy だけずらす
+            o.rect[1] += dy;
+            o.rect[3] += dy;
+        }
         let start = self.template.objects.len();
         for i in sel {
             let mut o = self.template.objects[i].clone();
@@ -1407,6 +1447,81 @@ mod tests {
         assert!(!d.can_undo());
         d.selection.clear();
         assert!(!d.add_row_below());
+    }
+
+    #[test]
+    fn add_row_below_pushes_down_only_the_parts_right_below_the_row() {
+        // 行は x 0〜2 in、y 0〜0.25 in。別の部品を置き、足したあとに動くかを見る
+        let cases: [(&str, [f64; 4], bool); 6] = [
+            ("真下", [0.0, 0.25, 2.0, 0.5], true),
+            ("真下で左右が一部重なる", [1.5, 0.25, 3.0, 0.5], true),
+            ("離れた真下", [0.0, 1.0, 2.0, 1.25], true),
+            ("横に並ぶ別の列", [3.0, 0.25, 4.0, 0.5], false),
+            ("右端がちょうど接するだけ", [2.0, 0.25, 3.0, 0.5], false),
+            ("行と同じ高さにある", [3.0, 0.0, 4.0, 0.25], false),
+        ];
+        for (name, rect, moved) in cases {
+            let mut d = Document::new(Template::default(), "t", None);
+            let (a, b) = d.add_field_row("工種", (0.0, 0.0), 0.5, 1.5, 0.25);
+            let other = d.add_caption("別", "", false, rect);
+            d.selection = [a, b].into();
+            d.undo.clear();
+            assert!(d.add_row_below(), "{name}: {:?}", d.notice);
+            let after = d.template.objects[other].rect;
+            let want = if moved {
+                [rect[0], rect[1] + 0.25, rect[2], rect[3] + 0.25]
+            } else {
+                rect
+            };
+            assert_eq!(after, want, "{name}");
+            // 足した行は、押し下げた部品と重ならない位置（真下）に入る
+            assert_eq!(d.template.objects[b + 2].rect[1], 0.25, "{name}");
+            // 「元に戻す」1 回で、押し下げも含めて戻る
+            d.undo();
+            assert_eq!(d.template.objects[other].rect, rect, "{name}");
+            assert!(!d.can_undo(), "{name}");
+        }
+    }
+
+    #[test]
+    fn add_row_below_refuses_when_the_card_bottom_would_be_exceeded() {
+        let card_h = crate::layout::a4_division(&Template::default().header).1;
+        // (選んだ行の上端, 真下の部品の上端, 追加できるか)
+        let cases: [(f64, Option<f64>, bool); 5] = [
+            (0.0, None, true),
+            // 足した行の下端が、カードの下端にちょうど届く
+            (card_h - 0.5, None, true),
+            // 足した行が、カードの下端を超える
+            (card_h - 0.25, None, false),
+            // 足した行は収まるが、押し下げた部品が超える
+            (0.0, Some(card_h - 0.25), false),
+            // 押し下げた部品が、カードの下端にちょうど届く
+            (0.0, Some(card_h - 0.5), true),
+        ];
+        for (top, below, ok) in cases {
+            let mut d = Document::new(Template::default(), "t", None);
+            let (a, b) = d.add_field_row("工種", (0.0, top), 0.5, 1.5, 0.25);
+            if let Some(y) = below {
+                d.add_caption("下", "", false, [0.0, y.max(0.25), 2.0, y.max(0.25) + 0.25]);
+            }
+            d.selection = [a, b].into();
+            d.undo.clear();
+            let before: Vec<[f64; 4]> = d.template.objects.iter().map(|o| o.rect).collect();
+            let label = format!("top={top} below={below:?}");
+            assert_eq!(d.add_row_below(), ok, "{label}");
+            if ok {
+                assert!(d.notice.is_none(), "{label}");
+                assert!(d.can_undo(), "{label}");
+            } else {
+                // 何も変えず、「元に戻す」の履歴も積まず、理由を伝える
+                let after: Vec<[f64; 4]> = d.template.objects.iter().map(|o| o.rect).collect();
+                assert_eq!(after, before, "{label}");
+                assert_eq!(d.selection, [a, b].into(), "{label}");
+                assert!(!d.can_undo(), "{label}");
+                let msg = d.notice.as_deref().expect("理由が入る");
+                assert!(msg.contains("カードの下端に収まらない"), "{label}: {msg}");
+            }
+        }
     }
 
     #[test]

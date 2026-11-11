@@ -625,6 +625,39 @@ fn ctrl_enter_and_the_edit_menu_add_a_row_below() {
 }
 
 #[test]
+fn add_row_below_that_would_leave_the_card_is_refused_with_a_toast() {
+    let mut h = harness();
+    // 表（文字項目）の最下段の下端を、カードの下端に合わせる（もう 1 行は入らない）
+    {
+        let doc = &mut app(&mut h).doc;
+        let card_bottom = crate::layout::a4_division(&doc.template.header).1;
+        let (last, lowest) = doc
+            .template
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.kind == crate::tpl::KIND_CAPTION)
+            .map(|(i, o)| (i, o.normalized()[3]))
+            .fold((0, 0.0), |m, c| if c.1 > m.1 { c } else { m });
+        for o in &mut doc.template.objects {
+            o.rect[1] += card_bottom - lowest;
+            o.rect[3] += card_bottom - lowest;
+        }
+        doc.selection = [last].into();
+    }
+    let before = app(&mut h).doc.template.objects.len();
+    press(&mut h, Modifiers::COMMAND, Key::Enter);
+    assert_eq!(app(&mut h).doc.template.objects.len(), before);
+    let toast = app(&mut h)
+        .toast
+        .clone()
+        .map(|(m, _)| m)
+        .unwrap_or_default();
+    assert!(toast.contains("カードの下端に収まらない"), "{toast}");
+    assert!(app(&mut h).doc.notice.is_none());
+}
+
+#[test]
 fn edit_menu_commands() {
     let mut h = harness();
     open_menu(&mut h, "編集", "すべて選択");
