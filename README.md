@@ -10,8 +10,24 @@
 
 ## 導入
 
-配布は [GitHub Releases](https://github.com/scottlz0310/card-template-studio/releases) の ZIP だけ。
-インストーラーはなく、設定ファイルやレジストリも使わない（展開して exe を起動するだけ）。消すときは、フォルダごと削除する。
+導入の方法は、[Scoop](https://scoop.sh) と、GitHub Releases の ZIP の 2 通り。
+インストーラーはなく、設定ファイルやレジストリも使わない（実行ファイルを置いて起動するだけ）。
+
+### Scoop で導入する
+
+```powershell
+scoop bucket add scottlz0310 https://github.com/scottlz0310/scoop-bucket
+scoop install card-template-studio
+```
+
+- 更新は `scoop update card-template-studio`、削除は `scoop uninstall card-template-studio`。
+- スタートメニューに「Card Template Studio」のショートカットができる。コマンドラインからは `card-template-studio` で起動できる。
+- Scoop は Release の ZIP をダウンロードするときに、`.sha256` でチェックサムを照合する。
+- Scoop が取得したファイルには、ブラウザのダウンロードの印が付かないため、下の SmartScreen の警告は出にくい。
+
+### ZIP から導入する
+
+[GitHub Releases](https://github.com/scottlz0310/card-template-studio/releases) の ZIP を、展開して使う。消すときは、フォルダごと削除する。
 
 1. 最新の Release から、次の 2 つをダウンロードする。
    - `card-template-studio-x86_64-pc-windows-msvc.zip`
@@ -27,9 +43,9 @@
    `-eq` は大文字小文字を区別しないので、`.sha256` の小文字と `Get-FileHash` の大文字は、そのまま比べてよい。
 3. ZIP を好きな場所に展開し、`card-template-studio.exe` を起動する。
 
-### SmartScreen の警告が出たとき
+#### SmartScreen の警告が出たとき
 
-exe はコード署名をしていない。ダウンロードした直後の初回実行で、「Windows によって PC が保護されました」と出ることがある。
+exe はコード署名をしていない。ブラウザでダウンロードした ZIP の初回実行で、「Windows によって PC が保護されました」と出ることがある。
 
 - 展開する前に、ZIP のファイルを右クリック →「プロパティ」→「許可する」にチェックを入れて「OK」を押す。
 - または、警告の「詳細情報」→「実行」を押す。

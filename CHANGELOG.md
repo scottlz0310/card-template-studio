@@ -4,7 +4,7 @@
 
 ### Changed
 
-- README に、動作環境と、GitHub Releases の ZIP からの導入（ダウンロード・`.sha256` によるチェックサムの照合・展開・起動）、SmartScreen の警告が出たときの対処、`cargo install --git` によるソースからの導入を書いた。ビルドと確認の手順は「開発」の節にまとめた（#47）。
+- README に、動作環境と、Scoop（`scottlz0310/scoop-bucket`）での導入、GitHub Releases の ZIP からの導入（ダウンロード・`.sha256` によるチェックサムの照合・展開・起動）、SmartScreen の警告が出たときの対処、`cargo install --git` によるソースからの導入を書いた。ビルドと確認の手順は「開発」の節にまとめた（#46, #47）。
 
 ## [0.1.1] - 2026-11-11
 
