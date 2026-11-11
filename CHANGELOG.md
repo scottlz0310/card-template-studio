@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-11
+
 ### Changed
 
 - 「下に行を追加」で、足した行と重なる下の部品を、重ならない位置まで押し下げる。足した行が下の行に重ならなくなる。押した部品に重なる、さらに下の部品も連鎖して押す。足した行の下に隙間が足りるときは、だれも動かさない。横に並ぶ別の列（左の写真など）は動かさない。足した行か押し下げた部品が、カードの下端（A4 ÷ 分割数）を超えるときは、何も変えずに、足りない長さを添えて知らせる（画面下のメッセージ）。
@@ -71,6 +73,7 @@
 - 文字項目の「表示する文字」「項目名」に cp932 で表せない文字（絵文字など）を入力すると、`&#128512;` のような文字列に化けて警告も消えていたのを、入力を受け付けず警告を出すようにした（#16）。
 - プロパティ欄とダイアログの ComboBox・文字入力欄に、支援技術から見える名前（アクセシブルネーム）を付けた。画面操作のテストのアクセシビリティ検査を有効にし、新しい未対応が入らないようにした（#17）。
 
-[Unreleased]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/scottlz0310/card-template-studio/releases/tag/v0.1.1
