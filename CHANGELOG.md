@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-11
+
 ### Added
 
 - 現場編集長アルバムのカードテンプレート（.TPL）の読み書き。読んで何も変えずに書くとバイト単位で元と一致する。
@@ -53,4 +55,5 @@
 - 文字項目の「表示する文字」「項目名」に cp932 で表せない文字（絵文字など）を入力すると、`&#128512;` のような文字列に化けて警告も消えていたのを、入力を受け付けず警告を出すようにした（#16）。
 - プロパティ欄とダイアログの ComboBox・文字入力欄に、支援技術から見える名前（アクセシブルネーム）を付けた。画面操作のテストのアクセシビリティ検査を有効にし、新しい未対応が入らないようにした（#17）。
 
-[Unreleased]: https://github.com/scottlz0310/card-template-studio/tree/HEAD
+[Unreleased]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/scottlz0310/card-template-studio/releases/tag/v0.1.1
