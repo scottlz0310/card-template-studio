@@ -2,7 +2,8 @@
 
 use crate::canvas::{self, ACCENT, CanvasAction, CanvasState, TableSpec, Tool, View};
 use crate::doc::{self, Align, Document, Library, validate_name};
-use crate::layout::{PRESETS, layout_label};
+use crate::layout::layout_label;
+use crate::layout_picker;
 use crate::props;
 use crate::tpl::{Header, MM_PER_INCH, Object, Template};
 use dialogs::{Dialogs, NativeDialogs};

@@ -990,3 +990,46 @@ fn align_panel_button_aligns_table_columns_to_the_top_row() {
             .is_disabled()
     );
 }
+
+#[test]
+fn new_template_buttons_stay_reachable_with_the_free_division_inputs_at_the_minimum_window_size() {
+    // 分割の絵と「任意」の入力欄が増えても、最小のウィンドウ（960×600）で「作成」「やめる」が画面の中に残る
+    let size = egui::vec2(960.0, 600.0);
+    let mut h = Harness::builder()
+        .with_size(size)
+        .allow_missing_glyphs()
+        .with_accessibility_check(true)
+        .with_max_steps(30)
+        .build_eframe(move |cc| {
+            crate::install_fonts(&cc.egui_ctx);
+            StudioApp::new(&cc.egui_ctx, None, None)
+        });
+    h.run();
+    app(&mut h).run_pending(Pending::New);
+    h.run();
+    h.get_all_by_label("任意").last().unwrap().click();
+    h.run();
+    for name in ["作成", "やめる"] {
+        let r = h.get_by_label(name).rect();
+        assert!(
+            r.min.y >= 0.0 && r.max.y <= size.y,
+            "{name} が画面の外にある: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn new_template_dialog_picks_the_division_by_tile_and_orientation() {
+    let mut h = harness();
+    app(&mut h).run_pending(Pending::New);
+    h.run();
+    // 背後のカード全体の欄にも同じ部品があるので、前面の（最後の）ものを操作する
+    h.get_all_by_label("横向き").last().unwrap().click();
+    h.run();
+    h.get_all_by_label("横2×縦3").last().unwrap().click();
+    h.run();
+    h.get_by_label("作成").click();
+    h.run();
+    let hd = &app(&mut h).doc.template.header;
+    assert_eq!((hd.cols, hd.rows, hd.is_portrait()), (2, 3, false));
+}

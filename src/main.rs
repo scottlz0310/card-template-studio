@@ -4,6 +4,7 @@ mod app;
 mod canvas;
 mod doc;
 mod layout;
+mod layout_picker;
 mod props;
 #[cfg(test)]
 mod test_support;

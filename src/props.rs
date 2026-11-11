@@ -2,7 +2,8 @@
 
 use crate::canvas::ACCENT;
 use crate::doc::{Document, KNOWN_FIELDS};
-use crate::layout::{self, PRESETS, card_frame, layout_label};
+use crate::layout::{self, card_frame};
+use crate::layout_picker;
 use crate::tpl::{self, Body, Fmt, MM_PER_INCH, SjisString, fmt_off};
 use egui::{Color32, RichText};
 
@@ -136,19 +137,10 @@ pub fn show(ui: &mut egui::Ui, doc: &mut Document, focus_text: &mut bool) {
 fn card_props(ui: &mut egui::Ui, doc: &mut Document) {
     ui.label(RichText::new("カード全体").heading());
     let frame = card_frame(&doc.template);
-    let layout_heading = section(ui, "レイアウト");
+    section(ui, "レイアウト");
     let h = doc.template.header.clone();
     let mut choice = (h.cols, h.rows, h.is_portrait());
-    egui::ComboBox::from_id_salt("layout")
-        .width(220.0)
-        .selected_text(layout_label(choice.0, choice.1, choice.2))
-        .show_ui(ui, |ui| {
-            for &(c, r, p) in PRESETS {
-                ui.selectable_value(&mut choice, (c, r, p), layout_label(c, r, p));
-            }
-        })
-        .response
-        .labelled_by(layout_heading);
+    layout_picker::show(ui, "layout", &mut choice);
     if choice != (h.cols, h.rows, h.is_portrait()) {
         doc.set_layout(choice.0, choice.1, choice.2);
     }
@@ -940,9 +932,7 @@ mod tests {
     #[test]
     fn card_layout_can_be_changed_from_presets() {
         let mut h = harness(vec![], &[]);
-        h.get_by_label("レイアウト").click();
-        h.run();
-        h.get_by_label("横1×縦2（縦向き）").click();
+        h.get_by_label("横1×縦2").click();
         h.run();
         let header = &h.state().doc.template.header;
         assert_eq!(
@@ -951,6 +941,15 @@ mod tests {
         );
         assert!(h.state().doc.dirty);
         h.get_by_label_contains("保存先フォルダ名: TEMP1x2_V");
+        // 向きだけを変えても、分割数は保たれる
+        h.get_by_label("横向き").click();
+        h.run();
+        let header = &h.state().doc.template.header;
+        assert_eq!(
+            (header.cols, header.rows, header.is_portrait()),
+            (1, 2, false)
+        );
+        h.get_by_label_contains("保存先フォルダ名: TEMP1x2_H");
     }
 
     #[test]
