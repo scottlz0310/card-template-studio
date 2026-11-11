@@ -793,7 +793,7 @@ fn add_row_button(ui: &mut egui::Ui, doc: &mut Document) {
     section(ui, "表組");
     if ui
         .button("この行の下に行を追加")
-        .on_hover_text("同じ幅・高さ・書式の行を真下に足し、項目を標準の並び（工種 → 種別 → 細別 → 写真タイトル → 撮影箇所 → 撮影年月日）で次に進めます（Ctrl+Enter）")
+        .on_hover_text("同じ幅・高さ・書式の行を真下に足し（重なる下の部品は押し下げます。カードの下端を超えるときは足せません）、項目を標準の並び（工種 → 種別 → 細別 → 写真タイトル → 撮影箇所 → 撮影年月日）で次に進めます（Ctrl+Enter）")
         .clicked()
     {
         doc.add_row_below();

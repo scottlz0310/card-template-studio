@@ -321,6 +321,10 @@ impl eframe::App for StudioApp {
                 }
             });
 
+        if let Some(msg) = self.doc.notice.take() {
+            self.toast(msg, &ctx);
+        }
+
         if let Some((msg, t)) = self.toast.clone() {
             let now = ctx.input(|i| i.time);
             if now - t > 6.0 {
