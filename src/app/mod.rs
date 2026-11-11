@@ -3,7 +3,7 @@
 use crate::canvas::{
     self, ACCENT, CanvasAction, CanvasState, GRID_MM_RANGE, TableSpec, Tool, View,
 };
-use crate::doc::{self, Align, Document, Library, validate_name};
+use crate::doc::{self, Align, ClickMods, Document, Library, validate_name};
 use crate::layout::layout_label;
 use crate::layout_picker;
 use crate::props;
