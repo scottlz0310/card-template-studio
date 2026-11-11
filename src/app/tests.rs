@@ -605,6 +605,55 @@ fn open_menu(h: &mut H, menu: &str, item: &str) {
 }
 
 #[test]
+fn part_list_shift_click_selects_a_range_and_ctrl_click_toggles() {
+    // 見本の部品: 0 = 写真枠、以降は (項目名, 項目値) の組が 1〜2、3〜4、5〜6、… の順（一覧は大きい番号から並ぶ）
+    // (名前, クリック列 (一覧の文字, 修飾), 最後の選択)
+    type Case = (&'static str, Vec<(&'static str, Modifiers)>, Vec<usize>);
+    let cases: Vec<Case> = vec![
+        (
+            "クリックは、その部品だけ",
+            vec![("〈工種〉", Modifiers::NONE)],
+            vec![2],
+        ),
+        (
+            "Shift+クリックは、起点から範囲を選ぶ",
+            vec![
+                ("〈工種〉", Modifiers::NONE),
+                ("〈写真タイトル〉", Modifiers::SHIFT),
+            ],
+            vec![2, 3, 4, 5, 6],
+        ),
+        (
+            "Ctrl+クリックは、その部品だけを足す（範囲にならない）",
+            vec![
+                ("〈工種〉", Modifiers::NONE),
+                ("〈写真タイトル〉", Modifiers::COMMAND),
+            ],
+            vec![2, 6],
+        ),
+        (
+            "Ctrl+クリックのあとの Shift+クリックは、Ctrl で押した部品が起点",
+            vec![
+                ("〈工種〉", Modifiers::NONE),
+                ("〈撮影年月日〉", Modifiers::COMMAND),
+                ("〈撮影箇所〉", Modifiers::SHIFT),
+            ],
+            vec![8, 9, 10],
+        ),
+    ];
+    for (name, clicks, want) in cases {
+        let mut h = harness();
+        app(&mut h).doc.selection.clear();
+        for (label, mods) in clicks {
+            h.get_by_label_contains(label).click_modifiers(mods);
+            h.run();
+        }
+        let got: Vec<usize> = app(&mut h).doc.selection.iter().copied().collect();
+        assert_eq!(got, want, "{name}");
+    }
+}
+
+#[test]
 fn ctrl_enter_and_the_edit_menu_add_a_row_below() {
     let mut h = harness();
     let before = app(&mut h).doc.template.objects.len();
@@ -786,14 +835,25 @@ fn layer_list_selects_with_modifiers() {
     labels.remove(0).click();
     h.run();
     assert_eq!(selected_count(&mut h), 1);
+    // Shift+クリックは範囲選択: 起点（先頭の項目値）から 2 つ目の項目値まで、間の項目名を含めて 3 つ
     let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
     second.click_modifiers(Modifiers::SHIFT);
     h.run();
-    assert_eq!(selected_count(&mut h), 2);
+    assert_eq!(selected_count(&mut h), 3);
+    // 同じ部品を Shift+クリックし直しても、起点は動かず、範囲は変わらない
     let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
     second.click_modifiers(Modifiers::SHIFT);
     h.run();
-    assert_eq!(selected_count(&mut h), 1, "もう一度で外れる");
+    assert_eq!(selected_count(&mut h), 3);
+    // 個別に外す・戻すのは Ctrl+クリック
+    let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
+    second.click_modifiers(Modifiers::COMMAND);
+    h.run();
+    assert_eq!(selected_count(&mut h), 2, "Ctrl+クリックで外れる");
+    let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
+    second.click_modifiers(Modifiers::COMMAND);
+    h.run();
+    assert_eq!(selected_count(&mut h), 3, "もう一度で戻る");
 }
 
 #[test]

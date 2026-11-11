@@ -127,12 +127,22 @@ struct Snapshot {
     selection: BTreeSet<usize>,
 }
 
+/// クリックの修飾キー（`toggle` は Ctrl（Mac は Cmd））
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClickMods {
+    pub shift: bool,
+    pub toggle: bool,
+}
+
 pub struct Document {
     pub template: Template,
     pub name: String,
     pub path: Option<PathBuf>,
     pub dirty: bool,
     pub selection: BTreeSet<usize>,
+    /// 一覧・画面の Shift+クリックで、範囲選択の始まりになる部品。選択に含まれているときだけ有効で、部品の番号が
+    /// ずれる操作（削除・重ね順の変更・元に戻す・やり直し）で消す
+    anchor: Option<usize>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
     /// 同じ操作の連続（入力欄の打鍵など）を 1 回の「元に戻す」にまとめる印
@@ -149,6 +159,7 @@ impl Document {
             path,
             dirty: false,
             selection: BTreeSet::new(),
+            anchor: None,
             undo: Vec::new(),
             redo: Vec::new(),
             coalesce: None,
@@ -207,6 +218,7 @@ impl Document {
             });
             self.template = s.template;
             self.selection = s.selection;
+            self.anchor = None;
             self.dirty = true;
             self.coalesce = None;
         }
@@ -220,6 +232,7 @@ impl Document {
             });
             self.template = s.template;
             self.selection = s.selection;
+            self.anchor = None;
             self.dirty = true;
             self.coalesce = None;
         }
@@ -262,6 +275,43 @@ impl Document {
 
     pub fn select_all(&mut self) {
         self.selection = (0..self.template.objects.len()).collect();
+    }
+
+    /// 一覧・画面の共通の、クリックによる選択。`order` は範囲の数え方（一覧に出ている並び）。
+    /// - 修飾なし: その部品だけを選び、起点にする。
+    /// - Ctrl: その部品を選択に加える／外し、起点にする。
+    /// - Shift: 起点からその部品までの範囲を選ぶ（起点は動かさない）。Ctrl+Shift は、範囲を選択に加える。
+    ///
+    /// 起点がない・選択から外れている・`order` にないときの Shift は、Shift なしと同じに扱う
+    pub fn click_select(&mut self, i: usize, mods: ClickMods, order: &[usize]) {
+        let Some(at) = order.iter().position(|&x| x == i) else {
+            return;
+        };
+        let anchor_at = self
+            .anchor
+            .filter(|a| self.selection.contains(a))
+            .and_then(|a| order.iter().position(|&x| x == a));
+        match (mods.shift, anchor_at) {
+            (true, Some(from)) => {
+                let (lo, hi) = (from.min(at), from.max(at));
+                let range = order[lo..=hi].iter().copied();
+                if mods.toggle {
+                    self.selection.extend(range);
+                } else {
+                    self.selection = range.collect();
+                }
+            }
+            _ => {
+                if mods.toggle {
+                    if !self.selection.remove(&i) {
+                        self.selection.insert(i);
+                    }
+                } else {
+                    self.selection = [i].into();
+                }
+                self.anchor = Some(i);
+            }
+        }
     }
 
     // ----- 追加・削除 -----
@@ -553,6 +603,7 @@ impl Document {
             return 0;
         }
         self.checkpoint(None);
+        self.anchor = None;
         let mut i = 0;
         self.template.objects.retain(|_| {
             let keep = !del.contains(&i);
@@ -753,6 +804,7 @@ impl Document {
             return;
         }
         self.checkpoint(None);
+        self.anchor = None;
         let set: BTreeSet<usize> = sel.into_iter().collect();
         let (picked, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.template.objects)
             .into_iter()
@@ -1474,6 +1526,152 @@ mod tests {
         assert!(!d.can_undo());
         d.selection.clear();
         assert!(!d.add_row_below());
+    }
+
+    /// 部品が 5 つ（番号 0〜4）の文書
+    fn doc_with_five() -> Document {
+        let mut d = Document::new(Template::default(), "t", None);
+        for k in 0..5 {
+            let y = k as f64 * 0.3;
+            d.add_caption("字", "", false, [0.0, y, 1.0, y + 0.25]);
+        }
+        d.selection.clear();
+        d
+    }
+
+    #[test]
+    fn click_select_follows_the_list_like_a_file_manager() {
+        // (名前, 並び, クリック列 (番号, Shift, Ctrl), 最後の選択)
+        type Click = (usize, bool, bool);
+        type Case = (&'static str, [usize; 5], Vec<Click>, Vec<usize>);
+        let desc = [4, 3, 2, 1, 0]; // 一覧は前面（大きい番号）から並ぶ
+        let cases: Vec<Case> = vec![
+            (
+                "ふつうのクリックは、その部品だけ",
+                desc,
+                vec![(2, false, false)],
+                vec![2],
+            ),
+            (
+                "Shift で、起点から範囲を選ぶ",
+                desc,
+                vec![(1, false, false), (3, true, false)],
+                vec![1, 2, 3],
+            ),
+            (
+                "Shift は、起点より前にも伸ばせる",
+                desc,
+                vec![(3, false, false), (1, true, false)],
+                vec![1, 2, 3],
+            ),
+            (
+                "Shift をもう一度押すと、起点は動かず範囲だけ変わる",
+                desc,
+                vec![(1, false, false), (3, true, false), (2, true, false)],
+                vec![1, 2],
+            ),
+            (
+                "Ctrl で、選択に加える",
+                desc,
+                vec![(0, false, false), (2, false, true)],
+                vec![0, 2],
+            ),
+            (
+                "Ctrl をもう一度押すと、外れる",
+                desc,
+                vec![(0, false, false), (2, false, true), (2, false, true)],
+                vec![0],
+            ),
+            (
+                "Ctrl+Shift で、範囲を選択に加える（起点は Ctrl で押した部品）",
+                desc,
+                vec![(0, false, false), (3, false, true), (1, true, true)],
+                vec![0, 1, 2, 3],
+            ),
+            (
+                "Ctrl で押した部品が、次の Shift の起点になる",
+                desc,
+                vec![(1, false, false), (3, false, true), (0, true, false)],
+                vec![0, 1, 2, 3],
+            ),
+            (
+                "起点がないときの Shift は、ふつうのクリック",
+                desc,
+                vec![(2, true, false)],
+                vec![2],
+            ),
+            (
+                "起点がないときの Ctrl+Shift は、Ctrl と同じ",
+                desc,
+                vec![(2, true, true)],
+                vec![2],
+            ),
+            (
+                "範囲は、番号順でなく一覧の並びで数える",
+                [0, 2, 1, 4, 3],
+                vec![(0, false, false), (4, true, false)],
+                vec![0, 1, 2, 4],
+            ),
+        ];
+        for (name, order, clicks, want) in cases {
+            let mut d = doc_with_five();
+            for (i, shift, toggle) in clicks {
+                d.click_select(i, ClickMods { shift, toggle }, &order);
+            }
+            let got: Vec<usize> = d.selection.iter().copied().collect();
+            assert_eq!(got, want, "{name}");
+        }
+    }
+
+    #[test]
+    fn click_select_ignores_a_part_that_is_not_in_the_list() {
+        let mut d = doc_with_five();
+        d.click_select(1, ClickMods::default(), &[4, 3, 2, 1, 0]);
+        d.click_select(9, ClickMods::default(), &[4, 3, 2, 1, 0]);
+        assert_eq!(d.selection, [1].into());
+    }
+
+    #[test]
+    fn click_select_forgets_a_stale_anchor() {
+        let order = [4, 3, 2, 1, 0];
+        let shift = ClickMods {
+            shift: true,
+            toggle: false,
+        };
+        // 起点が選択から外れた（画面など、ほかの操作で選択が変わった）あとの Shift は、ふつうのクリック
+        let mut d = doc_with_five();
+        d.click_select(1, ClickMods::default(), &order);
+        d.selection = [4].into();
+        d.click_select(3, shift, &order);
+        assert_eq!(d.selection, [3].into(), "選択から外れた起点");
+
+        // 部品の番号がずれる操作のあとは、起点が選択に含まれていても使わない
+        type Op = (&'static str, fn(&mut Document));
+        let ops: [Op; 4] = [
+            ("重ね順の変更", |d| d.reorder(true)),
+            ("削除", |d| {
+                d.delete_selected();
+            }),
+            ("元に戻す", |d| {
+                d.add_caption("新", "", false, [2.0, 0.0, 3.0, 0.25]);
+                d.undo();
+            }),
+            ("やり直し", |d| {
+                d.add_caption("新", "", false, [2.0, 0.0, 3.0, 0.25]);
+                d.undo();
+                d.redo();
+            }),
+        ];
+        for (name, op) in ops {
+            let mut d = doc_with_five();
+            d.click_select(2, ClickMods::default(), &order);
+            op(&mut d);
+            d.select_all();
+            let last = d.template.objects.len() - 1;
+            let order: Vec<usize> = (0..=last).rev().collect();
+            d.click_select(last, shift, &order);
+            assert_eq!(d.selection, [last].into(), "{name}");
+        }
     }
 
     #[test]

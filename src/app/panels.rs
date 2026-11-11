@@ -53,10 +53,13 @@ impl StudioApp {
         egui::ScrollArea::vertical()
             .id_salt("layers")
             .show(ui, |ui| {
-                let mut clicked: Option<(usize, bool)> = None;
+                let mut clicked: Option<(usize, ClickMods)> = None;
+                // 一覧に出ている並び（範囲選択の数え方）
+                let mut order: Vec<usize> = Vec::new();
                 let mut picture_no = 0;
                 for (i, o) in self.doc.template.objects.iter().enumerate().rev() {
                     let _ = picture_no;
+                    order.push(i);
                     let text = match &o.body {
                         crate::tpl::Body::Caption(c) => {
                             if c.is_value_cell() {
@@ -75,17 +78,15 @@ impl StudioApp {
                     let sel = self.doc.selection.contains(&i);
                     let r = ui.selectable_label(sel, format!("{lock}{}  {}", o.kind_label(), text));
                     if r.clicked() {
-                        clicked = Some((i, ui.input(|i| i.modifiers.shift || i.modifiers.command)));
+                        let mods = ui.input(|i| ClickMods {
+                            shift: i.modifiers.shift,
+                            toggle: i.modifiers.command,
+                        });
+                        clicked = Some((i, mods));
                     }
                 }
-                if let Some((i, add)) = clicked {
-                    if add {
-                        if !self.doc.selection.remove(&i) {
-                            self.doc.selection.insert(i);
-                        }
-                    } else {
-                        self.doc.selection = [i].into();
-                    }
+                if let Some((i, mods)) = clicked {
+                    self.doc.click_select(i, mods, &order);
                 }
             });
     }
