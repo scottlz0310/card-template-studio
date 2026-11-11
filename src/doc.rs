@@ -7,7 +7,7 @@ use crate::tpl::{
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// 行の真下かどうかを見るときの許容（インチ。0.025 mm）。端がぴったり接する行も「真下」に入れる
+/// 位置の比べ方の許容（インチ。0.025 mm）。端がぴったり接するだけなら、重なりとは見ない
 const ROW_BELOW_EPS: f64 = 0.001;
 
 /// 本体のサンプルで使われている項目名（データベースの項目）
@@ -414,9 +414,9 @@ impl Document {
     }
 
     /// 選んだ文字項目（項目名・項目値の行）の真下に、同じ幅・高さ・書式の行を足す。項目は ROW_ORDER の次に進める。
-    /// 真下（行と左右が重なり、行の下端より下）にある部品は、足した行の高さだけ押し下げる。
+    /// 足した行と重なる下の部品は、重ならない位置まで押し下げる（空きが足りるなら動かさない。連鎖する）。
     /// 足した行を選び、「元に戻す」は 1 回で戻る。文字項目が選ばれていなければ何もしない（false）。
-    /// 押し下げた部品がカードの下端を超えるときは、何も変えずに理由を `notice` に入れる（false）
+    /// 足した行か押し下げた部品がカードの下端を超えるときは、何も変えずに理由を `notice` に入れる（false）
     pub fn add_row_below(&mut self) -> bool {
         let sel: Vec<usize> = self
             .selected_editable()
@@ -440,22 +440,40 @@ impl Document {
             },
         );
         let dy = bottom - top;
-        // 行の真下にある部品。左右が重なるものだけを動かし、横に並ぶ別の列（左の写真など）は動かさない
-        let below: Vec<usize> = (0..self.template.objects.len())
+        // 足した行と重なる部品だけを、重ならない位置まで押し下げる。押した部品に重なる、さらに下の部品も
+        // 同じ規則で連鎖して押す（空きが足りるなら、だれも動かない）。上端が選んだ行の下端以上にある部品が対象。
+        // 上から順に見るので、押された部品の新しい位置は、あとの部品の判定にそのまま使える
+        let mut candidates: Vec<usize> = (0..self.template.objects.len())
             .filter(|&j| {
-                if sel.contains(&j) || !self.editable(j) {
-                    return false;
-                }
-                let r = self.template.objects[j].normalized();
-                r[1] >= bottom - ROW_BELOW_EPS && r[2].min(right) - r[0].max(left) > ROW_BELOW_EPS
+                !sel.contains(&j)
+                    && self.editable(j)
+                    && self.template.objects[j].normalized()[1] >= bottom - ROW_BELOW_EPS
             })
             .collect();
+        candidates.sort_by(|&p, &q| {
+            let top = |j: usize| self.template.objects[j].normalized()[1];
+            top(p).total_cmp(&top(q))
+        });
+        let mut placed = vec![[left, top + dy, right, bottom + dy]];
+        let mut shifts: Vec<(usize, f64)> = Vec::new();
+        for j in candidates {
+            let r = self.template.objects[j].normalized();
+            let by = placed
+                .iter()
+                .filter(|p| {
+                    p[2].min(r[2]) - p[0].max(r[0]) > ROW_BELOW_EPS
+                        && p[1] < r[3] - ROW_BELOW_EPS
+                        && p[3] > r[1] + ROW_BELOW_EPS
+                })
+                .map(|p| p[3] - r[1])
+                .fold(0.0, f64::max);
+            if by > 0.0 {
+                placed.push([r[0], r[1] + by, r[2], r[3] + by]);
+                shifts.push((j, by));
+            }
+        }
         let card_bottom = crate::layout::a4_division(&self.template.header).1;
-        let lowest = below
-            .iter()
-            .map(|&j| self.template.objects[j].normalized()[3])
-            .fold(bottom, f64::max)
-            + dy;
+        let lowest = placed.iter().map(|p| p[3]).fold(f64::MIN, f64::max);
         if lowest > card_bottom + ROW_BELOW_EPS {
             self.notice = Some(format!(
                 "カードの下端に収まらないため、行を追加できません（あと {:.1} mm 足りません）。先に下の部品を減らすか、行の高さを小さくしてください",
@@ -464,11 +482,11 @@ impl Document {
             return false;
         }
         self.checkpoint(None);
-        for j in below {
+        for (j, by) in shifts {
             let o = &mut self.template.objects[j];
-            // normalized() の向きに関わらず、上下の端をそのまま dy だけずらす
-            o.rect[1] += dy;
-            o.rect[3] += dy;
+            // normalized() の向きに関わらず、上下の端をそのまま by だけずらす
+            o.rect[1] += by;
+            o.rect[3] += by;
         }
         let start = self.template.objects.len();
         for i in sel {
@@ -1450,35 +1468,83 @@ mod tests {
     }
 
     #[test]
-    fn add_row_below_pushes_down_only_the_parts_right_below_the_row() {
-        // 行は x 0〜2 in、y 0〜0.25 in。別の部品を置き、足したあとに動くかを見る
-        let cases: [(&str, [f64; 4], bool); 6] = [
-            ("真下", [0.0, 0.25, 2.0, 0.5], true),
-            ("真下で左右が一部重なる", [1.5, 0.25, 3.0, 0.5], true),
-            ("離れた真下", [0.0, 1.0, 2.0, 1.25], true),
-            ("横に並ぶ別の列", [3.0, 0.25, 4.0, 0.5], false),
-            ("右端がちょうど接するだけ", [2.0, 0.25, 3.0, 0.5], false),
-            ("行と同じ高さにある", [3.0, 0.0, 4.0, 0.25], false),
+    fn add_row_below_pushes_down_only_the_parts_it_would_overlap() {
+        // 行は x 0〜2 in、y 0〜0.25 in（足す行は y 0.25〜0.5）。置いた部品（矩形）と、それぞれが下がる量
+        type Case = (&'static str, Vec<[f64; 4]>, Vec<f64>);
+        let cases: Vec<Case> = vec![
+            (
+                "すぐ下に接している（隙間なし）",
+                vec![[0.0, 0.25, 2.0, 0.5]],
+                vec![0.25],
+            ),
+            (
+                "隙間が足りない（0.05 in）",
+                vec![[0.0, 0.3, 2.0, 0.55]],
+                vec![0.2],
+            ),
+            (
+                "足す行の下端にちょうど接する",
+                vec![[0.0, 0.5, 2.0, 0.75]],
+                vec![0.0],
+            ),
+            (
+                "離れた真下（隙間が十分）",
+                vec![[0.0, 1.0, 2.0, 1.25]],
+                vec![0.0],
+            ),
+            ("左右が一部重なる", vec![[1.5, 0.25, 3.0, 0.5]], vec![0.25]),
+            ("横に並ぶ別の列", vec![[3.0, 0.25, 4.0, 0.5]], vec![0.0]),
+            (
+                "右端がちょうど接するだけ",
+                vec![[2.0, 0.25, 3.0, 0.5]],
+                vec![0.0],
+            ),
+            ("行と同じ高さにある", vec![[3.0, 0.0, 4.0, 0.25]], vec![0.0]),
+            (
+                "押された部品が、さらに下の部品に重なる（連鎖）",
+                vec![[0.0, 0.3, 2.0, 0.55], [0.0, 0.55, 2.0, 0.8]],
+                vec![0.2, 0.2],
+            ),
+            (
+                "押された部品の下に隙間があれば、連鎖が止まる",
+                vec![[0.0, 0.3, 2.0, 0.55], [0.0, 0.9, 2.0, 1.15]],
+                vec![0.2, 0.0],
+            ),
+            (
+                "連鎖は、左右が重なる部品にだけ伝わる",
+                vec![
+                    [0.0, 0.3, 1.0, 0.55],
+                    [0.5, 0.55, 3.0, 0.8],
+                    [3.0, 0.55, 4.0, 0.8],
+                ],
+                vec![0.2, 0.2, 0.0],
+            ),
         ];
-        for (name, rect, moved) in cases {
+        for (name, rects, shifts) in cases {
             let mut d = Document::new(Template::default(), "t", None);
             let (a, b) = d.add_field_row("工種", (0.0, 0.0), 0.5, 1.5, 0.25);
-            let other = d.add_caption("別", "", false, rect);
+            let others: Vec<usize> = rects
+                .iter()
+                .map(|r| d.add_caption("別", "", false, *r))
+                .collect();
             d.selection = [a, b].into();
             d.undo.clear();
             assert!(d.add_row_below(), "{name}: {:?}", d.notice);
-            let after = d.template.objects[other].rect;
-            let want = if moved {
-                [rect[0], rect[1] + 0.25, rect[2], rect[3] + 0.25]
-            } else {
-                rect
-            };
-            assert_eq!(after, want, "{name}");
-            // 足した行は、押し下げた部品と重ならない位置（真下）に入る
-            assert_eq!(d.template.objects[b + 2].rect[1], 0.25, "{name}");
+            for ((&i, r), by) in others.iter().zip(&rects).zip(&shifts) {
+                let got = d.template.objects[i].rect;
+                let want = [r[0], r[1] + by, r[2], r[3] + by];
+                assert!(
+                    got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-9),
+                    "{name}: {got:?} != {want:?}"
+                );
+            }
+            // 足した行は、元の行の真下に入る
+            assert_eq!(d.template.objects[others.len() + 2].rect[1], 0.25, "{name}");
             // 「元に戻す」1 回で、押し下げも含めて戻る
             d.undo();
-            assert_eq!(d.template.objects[other].rect, rect, "{name}");
+            for (&i, r) in others.iter().zip(&rects) {
+                assert_eq!(d.template.objects[i].rect, *r, "{name}");
+            }
             assert!(!d.can_undo(), "{name}");
         }
     }
@@ -1486,23 +1552,26 @@ mod tests {
     #[test]
     fn add_row_below_refuses_when_the_card_bottom_would_be_exceeded() {
         let card_h = crate::layout::a4_division(&Template::default().header).1;
-        // (選んだ行の上端, 真下の部品の上端, 追加できるか)
-        let cases: [(f64, Option<f64>, bool); 5] = [
+        // (選んだ行の上端, 下の部品の (上端, 下端), 追加できるか)
+        type Case = (f64, Option<(f64, f64)>, bool);
+        let cases: [Case; 6] = [
             (0.0, None, true),
             // 足した行の下端が、カードの下端にちょうど届く
             (card_h - 0.5, None, true),
             // 足した行が、カードの下端を超える
             (card_h - 0.25, None, false),
-            // 足した行は収まるが、押し下げた部品が超える
-            (0.0, Some(card_h - 0.25), false),
+            // 下の部品が足した行に重なり、押し下げるとカードの下端を超える
+            (0.0, Some((0.25, card_h)), false),
             // 押し下げた部品が、カードの下端にちょうど届く
-            (0.0, Some(card_h - 0.5), true),
+            (0.0, Some((0.25, card_h - 0.25)), true),
+            // 下端の近くにあっても、足した行と重ならない（隙間が足りる）部品は動かさないので、追加できる
+            (0.0, Some((card_h - 0.25, card_h)), true),
         ];
         for (top, below, ok) in cases {
             let mut d = Document::new(Template::default(), "t", None);
             let (a, b) = d.add_field_row("工種", (0.0, top), 0.5, 1.5, 0.25);
-            if let Some(y) = below {
-                d.add_caption("下", "", false, [0.0, y.max(0.25), 2.0, y.max(0.25) + 0.25]);
+            if let Some((y0, y1)) = below {
+                d.add_caption("下", "", false, [0.0, y0, 2.0, y1]);
             }
             d.selection = [a, b].into();
             d.undo.clear();
