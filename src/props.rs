@@ -149,14 +149,9 @@ fn card_props(ui: &mut egui::Ui, doc: &mut Document) {
         doc.template.header.folder_name()
     ));
     ui.label(format!(
-        "カードの大きさ: {:.1} × {:.1} mm{}",
+        "カードの大きさ: {:.1} × {:.1} mm（A4÷分割数）",
         frame.width * MM_PER_INCH,
         frame.height * MM_PER_INCH,
-        if frame.estimated {
-            "（推定: A4÷分割数）"
-        } else {
-            "（既存テンプレートの実測から）"
-        }
     ));
     if let Some(m) = layout::measured(&doc.template.header) {
         ui.label(
@@ -916,17 +911,23 @@ mod tests {
         let h = harness(vec![locked(), picture(0.1)], &[]);
         h.get_by_label("カード全体");
         h.get_by_label_contains("保存先フォルダ名: TEMP1x3_V");
-        h.get_by_label_contains("既存テンプレートの実測から");
         h.get_by_label_contains("1 個の図形・部品は本体の形式のまま");
     }
 
     #[test]
-    fn card_props_for_unmeasured_layout_say_estimated() {
-        let mut h = harness(vec![], &[]);
-        h.state_mut().doc.template.header.cols = 3;
-        h.state_mut().doc.template.header.rows = 4;
-        h.run();
-        h.get_by_label_contains("推定: A4÷分割数");
+    fn card_props_show_the_card_size_as_the_a4_division() {
+        // 1×3 縦は 210 × 99 mm、3×4 縦は 70 × 74.25 mm（表示は 74.2。A4 ÷ 分割数）
+        let cases = [
+            ((1u16, 3u16), "210.0 × 99.0 mm"),
+            ((3, 4), "70.0 × 74.2 mm"),
+        ];
+        for ((cols, rows), size) in cases {
+            let mut h = harness(vec![], &[]);
+            h.state_mut().doc.template.header.cols = cols;
+            h.state_mut().doc.template.header.rows = rows;
+            h.run();
+            h.get_by_label_contains(&format!("カードの大きさ: {size}（A4÷分割数）"));
+        }
     }
 
     #[test]
