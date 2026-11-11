@@ -898,3 +898,59 @@ fn table_tool_places_a_whole_table_in_the_dragged_rect() {
     let r = doc.template.objects[1].rect;
     assert!((r[2] - (1.0 + dw)).abs() < 1e-9 && (r[3] - (1.0 + dh / 2.0)).abs() < 1e-9);
 }
+
+#[test]
+fn starter_labels_fit_on_one_line_in_their_rows_for_every_division() {
+    // 「任意」で選べる全分割（1〜10 × 1〜10、両方の向き）で、項目名が折り返されず行の高さに収まる（折り返すと後半が欠ける）。
+    // 描画（draw_caption_text）と同じフォント・余白・行間で、1 pt = 1 px として測る
+    let mut h = Harness::new();
+    crate::install_fonts(&h.ctx);
+    h.frame(|_| {});
+    let divisions = (1..=10u16).flat_map(|c| {
+        (1..=10u16).flat_map(move |r| [true, false].map(move |portrait| (c, r, portrait)))
+    });
+    for (cols, rows, portrait) in divisions {
+        let t = crate::doc::starter_template(tpl::Header {
+            cols,
+            rows,
+            orientation: portrait as u32,
+            ..tpl::Header::default()
+        });
+        let name = format!("{cols}x{rows} portrait={portrait}");
+        let mut checked = 0;
+        h.frame(|ui| {
+            for o in &t.objects {
+                let Body::Caption(c) = &o.body else { continue };
+                if c.is_value != 0 {
+                    continue;
+                }
+                let r = o.normalized();
+                let (w_pt, h_pt) = ((r[2] - r[0]) * 72.0, (r[3] - r[1]) * 72.0);
+                let pad = (0.5 / MM_PER_INCH * 72.0).max(1.0);
+                let px = tpl::read_fmt_u16(&c.fmt, fmt_off::SIZE).max(1) as f64 as f32;
+                let line_pct = tpl::read_fmt_u16(&c.fmt, fmt_off::LINE_SPACE) as f32;
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    &c.text.to_string_lossy(),
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::new(px, font_family(&tpl::fixed_to_string(&c.face))),
+                        line_height: Some(px * (1.0 + line_pct / 100.0) * 1.05),
+                        ..Default::default()
+                    },
+                );
+                job.wrap.max_width = (w_pt as f32 - 2.0 * pad as f32).max(1.0);
+                let galley = ui.painter().layout_job(job);
+                let label = c.text.to_string_lossy();
+                assert_eq!(galley.rows.len(), 1, "{name}: 「{label}」が折り返された");
+                assert!(
+                    galley.size().y <= h_pt as f32,
+                    "{name}: 「{label}」の高さ {} が行の高さ {h_pt} を超える",
+                    galley.size().y
+                );
+                checked += 1;
+            }
+        });
+        assert_eq!(checked, 5, "{name}");
+    }
+}
