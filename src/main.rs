@@ -6,6 +6,7 @@ mod doc;
 mod layout;
 mod layout_picker;
 mod props;
+mod settings;
 #[cfg(test)]
 mod test_support;
 mod tpl;
@@ -35,10 +36,14 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport,
+        // ウィンドウの大きさ・位置・最大化は、eframe の永続化に任せる（画面外の位置の補正を含む）。
+        // 確認用の画面（--screenshot）は、利用者の保存済みの位置を書き換えない
+        persist_window: screenshot.is_none(),
         ..Default::default()
     };
+    // 名前は、eframe の保存先（%APPDATA%\<名前>\data\app.ron）になる。設定ファイルと同じフォルダに揃える
     eframe::run_native(
-        "カードテンプレート工房",
+        settings::APP_DIR,
         options,
         Box::new(move |cc| {
             install_fonts(&cc.egui_ctx);
@@ -46,6 +51,7 @@ fn main() -> eframe::Result<()> {
                 &cc.egui_ctx,
                 open,
                 screenshot,
+                Box::new(settings::FileStore::in_app_data()),
             )))
         }),
     )

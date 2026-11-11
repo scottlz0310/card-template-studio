@@ -1,10 +1,13 @@
 //! アプリ全体：メニュー、道具、左右の欄、ファイル操作、確認の画面。
 
-use crate::canvas::{self, ACCENT, CanvasAction, CanvasState, TableSpec, Tool, View};
+use crate::canvas::{
+    self, ACCENT, CanvasAction, CanvasState, GRID_MM_RANGE, TableSpec, Tool, View,
+};
 use crate::doc::{self, Align, Document, Library, validate_name};
 use crate::layout::layout_label;
 use crate::layout_picker;
 use crate::props;
+use crate::settings::{Settings, SettingsStore, ViewSettings};
 use crate::tpl::{Header, MM_PER_INCH, Object, Template};
 use dialogs::{Dialogs, NativeDialogs};
 use egui::{Color32, Key, KeyboardShortcut, Modifiers, RichText};
@@ -69,11 +72,29 @@ pub struct StudioApp {
     allow_close: bool,
     last_title: String,
     dialogs: Box<dyn Dialogs>,
+    /// 保存する設定（最後に使ったフォルダ、表示の設定）。表示の設定は、毎フレーム `view` から取り込む
+    settings: Settings,
+    settings_store: Box<dyn SettingsStore>,
+    /// 最後に保存を試みた内容。これと違うときだけ保存する（失敗した内容を、毎フレーム試し直さない）
+    settings_attempted: Settings,
+    /// 設定の読み書きの失敗を、利用者に知らせ済みか。保存が成功すると戻す（失敗のたびに知らせない）
+    settings_error_shown: bool,
 }
 
 impl StudioApp {
-    pub fn new(ctx: &egui::Context, open: Option<PathBuf>, screenshot: Option<PathBuf>) -> Self {
-        Self::with_dialogs(ctx, open, screenshot, Box::new(NativeDialogs))
+    pub fn new(
+        ctx: &egui::Context,
+        open: Option<PathBuf>,
+        screenshot: Option<PathBuf>,
+        settings_store: Box<dyn SettingsStore>,
+    ) -> Self {
+        Self::with_dialogs(
+            ctx,
+            open,
+            screenshot,
+            Box::new(NativeDialogs),
+            settings_store,
+        )
     }
 
     fn with_dialogs(
@@ -81,8 +102,15 @@ impl StudioApp {
         open: Option<PathBuf>,
         screenshot: Option<PathBuf>,
         dialogs: Box<dyn Dialogs>,
+        settings_store: Box<dyn SettingsStore>,
     ) -> Self {
         style(ctx);
+        let (settings, settings_error) = match settings_store.load() {
+            Ok(s) => (s, None),
+            Err(e) => (Settings::default(), Some(e)),
+        };
+        let mut view = View::default();
+        settings.view.apply_to(&mut view);
         let mut app = Self {
             doc: Document::new(
                 doc::starter_template(Header::default()),
@@ -90,7 +118,7 @@ impl StudioApp {
                 None,
             ),
             library: None,
-            view: View::default(),
+            view,
             canvas: CanvasState::default(),
             tool: Tool::Select,
             clipboard: Vec::new(),
@@ -100,6 +128,10 @@ impl StudioApp {
             allow_close: false,
             last_title: String::new(),
             dialogs,
+            settings_attempted: settings.clone(),
+            settings,
+            settings_store,
+            settings_error_shown: false,
         };
         if let Some(p) = open {
             if p.is_dir() {
@@ -107,6 +139,16 @@ impl StudioApp {
             } else {
                 app.open_file(p);
             }
+        }
+        if let Some(e) = settings_error {
+            // 起動時の「開けませんでした」などの表示を、消さない
+            let body = format!("{e}\n\n既定の設定で起動しました。");
+            if app.modal.is_none() {
+                app.error("設定を読めませんでした", body);
+            } else {
+                app.toast(format!("設定を読めませんでした: {body}"), ctx);
+            }
+            app.settings_error_shown = true;
         }
         if let Some(path) = screenshot {
             // 確認用の画面: ファイルの指定が無ければ見本のカードを開き、項目値を 1 つ選んだ状態を写す
@@ -138,6 +180,28 @@ impl StudioApp {
 
     fn toast(&mut self, msg: impl Into<String>, ctx: &egui::Context) {
         self.toast = Some((msg.into(), ctx.input(|i| i.time)));
+    }
+
+    /// 設定が変わっていたら保存する。変更は、トグルやダイアログの結果など 1 回ずつなので、すぐ書く。
+    /// 失敗は 1 回だけ知らせ、同じ内容では試し直さない（成功すると、次の失敗をまた知らせる）。
+    /// 確認用の画面（`--screenshot`）は、利用者の設定を書き換えない。
+    fn sync_settings(&mut self, ctx: &egui::Context) {
+        if self.shot.is_some() {
+            return;
+        }
+        self.settings.view = ViewSettings::of(&self.view);
+        if self.settings == self.settings_attempted {
+            return;
+        }
+        self.settings_attempted = self.settings.clone();
+        match self.settings_store.save(&self.settings) {
+            Ok(()) => self.settings_error_shown = false,
+            Err(e) if !self.settings_error_shown => {
+                self.settings_error_shown = true;
+                self.toast(format!("設定を保存できませんでした: {e}"), ctx);
+            }
+            Err(_) => {}
+        }
     }
 
     fn error(&mut self, title: &str, body: impl Into<String>) {
@@ -276,7 +340,13 @@ impl eframe::App for StudioApp {
             }
         }
         self.modals(&ctx);
+        self.sync_settings(&ctx);
         self.screenshot_tick(&ctx);
+    }
+
+    /// egui の記憶（パネルの幅など）は保存しない。保存するのは、設定として合意した項目だけ
+    fn persist_egui_memory(&self) -> bool {
+        false
     }
 }
 

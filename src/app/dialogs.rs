@@ -9,8 +9,8 @@ pub(super) trait Dialogs {
     fn open_template(&self, dir: Option<&Path>) -> Option<PathBuf>;
     /// 保存先を選ぶ。`file_name` は最初に入れておく名前。取り消しは `None`
     fn save_template(&self, dir: Option<&Path>, file_name: &str) -> Option<PathBuf>;
-    /// フォルダを選ぶ。取り消しは `None`
-    fn pick_folder(&self, title: Option<&str>) -> Option<PathBuf>;
+    /// フォルダを選ぶ。`dir` は最初に見せるフォルダ。取り消しは `None`
+    fn pick_folder(&self, title: Option<&str>, dir: Option<&Path>) -> Option<PathBuf>;
     /// 「はい / いいえ」の確認。はいなら `true`
     fn confirm(&self, title: &str, description: &str) -> bool;
 }
@@ -41,10 +41,13 @@ impl Dialogs for NativeDialogs {
         dlg.save_file()
     }
 
-    fn pick_folder(&self, title: Option<&str>) -> Option<PathBuf> {
+    fn pick_folder(&self, title: Option<&str>, dir: Option<&Path>) -> Option<PathBuf> {
         let mut dlg = rfd::FileDialog::new();
         if let Some(title) = title {
             dlg = dlg.set_title(title);
+        }
+        if let Some(dir) = dir {
+            dlg = dlg.set_directory(dir);
         }
         dlg.pick_folder()
     }

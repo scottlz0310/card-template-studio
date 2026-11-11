@@ -21,7 +21,10 @@ impl StudioApp {
                 "テンプレートが見つかりません",
                 format!("{} の中に「TEMP1x3_V」のようなフォルダと .TPL ファイルが見つかりませんでした。\n本体の「テンプレートのエクスポート」で作った TMPEXP フォルダを選んでください。", root.display()),
             ),
-            Ok(lib) => self.library = Some(lib),
+            Ok(lib) => {
+                self.settings.folders.library = Some(root);
+                self.library = Some(lib);
+            }
             Err(e) => self.error("フォルダを開けません", e),
         }
     }
@@ -81,9 +84,10 @@ impl StudioApp {
     }
 
     pub(super) fn export_dialog(&mut self, ctx: &egui::Context, all: bool) {
-        let Some(dest) = self.dialogs.pick_folder(Some(
-            "書き出し先のフォルダを選んでください（中に TMPEXP フォルダを作ります）",
-        )) else {
+        let Some(dest) = self.dialogs.pick_folder(
+            Some("書き出し先のフォルダを選んでください（中に TMPEXP フォルダを作ります）"),
+            self.settings.folders.export_dest.as_deref(),
+        ) else {
             return;
         };
         let items = match export_items(&self.doc, self.library.as_ref(), all) {
@@ -94,21 +98,30 @@ impl StudioApp {
             }
         };
         match export_with_confirm(&dest, &items, self.dialogs.as_ref()) {
-            Ok(files) => self.toast(format!("テンプレートのエクスポートは正常に終了しました（{} 件）。本体の「テンプレートのインポート」で TMPEXP フォルダを選んでください。", files.len()), ctx),
+            Ok(files) => {
+                self.settings.folders.export_dest = Some(dest);
+                self.toast(format!("テンプレートのエクスポートは正常に終了しました（{} 件）。本体の「テンプレートのインポート」で TMPEXP フォルダを選んでください。", files.len()), ctx);
+            }
             Err(e) => self.error("書き出せません", e),
         }
     }
 
     pub(super) fn open_dialog(&mut self) {
-        let dir = self.library.as_ref().map(|lib| lib.root.clone());
+        // TMPEXP を開いていなければ、最後に開いた TMPEXP フォルダから始める
+        let dir = self
+            .library
+            .as_ref()
+            .map(|lib| lib.root.clone())
+            .or_else(|| self.settings.folders.library.clone());
         if let Some(p) = self.dialogs.open_template(dir.as_deref()) {
             self.guard(Pending::Open(p));
         }
     }
 
-    /// フォルダを選んで、本体のエクスポート（TMPEXP）として開く
+    /// フォルダを選んで、本体のエクスポート（TMPEXP）として開く。最後に開いた TMPEXP フォルダから始める
     pub(super) fn open_library_dialog(&mut self, title: Option<&str>) {
-        if let Some(p) = self.dialogs.pick_folder(title) {
+        let dir = self.settings.folders.library.clone();
+        if let Some(p) = self.dialogs.pick_folder(title, dir.as_deref()) {
             self.open_library(p);
         }
     }
