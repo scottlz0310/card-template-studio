@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- リリースの公開が確定した後に、Scoop バケット（`scottlz0310/scoop-bucket`）の `Update Manifests` を起動する（`release.yml` の `notify-scoop-bucket`）。これまでは、バケットの毎日 1 回の確認（最大 約 1 日の遅れ）を待つか、手動で起動する必要があった。起動に使うトークンは、Release Bot（GitHub App）が、バケット 1 つ・Actions の書き込みだけに絞って発行する。トークンの発行や起動に失敗しても、リリースは失敗にせず、警告として残す（バケットの毎日の確認が拾う）。更新 PR のマージは、これまでどおり人が行う。Release Bot に `actions: write` が要る（#58）。
+
 ## [0.1.3] - 2026-11-11
 
 ### Changed
