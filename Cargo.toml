@@ -1,6 +1,6 @@
 [package]
 name = "card-template-studio"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "現場編集長アルバムのカードテンプレート（.TPL）編集アプリ"
 license = "MIT OR Apache-2.0"

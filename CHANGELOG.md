@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-11
+
 ### Added
 
 - 設定の保存。ウィンドウの大きさ・位置・最大化、最後に開いた TMPEXP フォルダと最後の書き出し先（ファイルダイアログの開始位置）、表示の設定（方眼の表示・間隔、方眼・部品への吸着、既存テンプレートの配置範囲、項目値の見本の文字）を、`%APPDATA%\card-template-studio` に保存し、次の起動で復元する。ウィンドウは eframe の永続化（`data\app.ron`。画面外の位置の補正を含む）、そのほかは `settings.json`。`settings.json` が読めない・書けないときは画面に知らせ、読めないときは既定の設定で起動する。テンプレートの内容、拡大率、スクロール位置は保存しない（#48）。
@@ -65,5 +67,6 @@
 - 文字項目の「表示する文字」「項目名」に cp932 で表せない文字（絵文字など）を入力すると、`&#128512;` のような文字列に化けて警告も消えていたのを、入力を受け付けず警告を出すようにした（#16）。
 - プロパティ欄とダイアログの ComboBox・文字入力欄に、支援技術から見える名前（アクセシブルネーム）を付けた。画面操作のテストのアクセシビリティ検査を有効にし、新しい未対応が入らないようにした（#17）。
 
-[Unreleased]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/scottlz0310/card-template-studio/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/scottlz0310/card-template-studio/releases/tag/v0.1.1
