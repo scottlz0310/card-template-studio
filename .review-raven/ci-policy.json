@@ -1,4 +1,4 @@
 {
   "version": 1,
-  "allowedSkippedChecks": ["draft", "attach", "finalize"]
+  "allowedSkippedChecks": ["draft", "attach", "finalize", "notify-scoop-bucket"]
 }
