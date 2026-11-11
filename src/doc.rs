@@ -845,7 +845,18 @@ pub fn export_templates(
     Ok(written)
 }
 
-/// 写真枠 1 つと、項目名・項目値の行を並べた最初の形（サンプルの 1x3 縦と同じ並び方）
+/// 最初の形に並べる行の項目（上から）
+const STARTER_FIELDS: [&str; 5] = ["工種", "種別", "写真タイトル", "撮影箇所", "撮影年月日"];
+/// 幅が高さのこの倍数以上のカードは、写真を左・表を右に置く（実物の 1×3・1×4 縦がこの並び）。
+/// それ以外（1×1 縦横・1×2 縦・2×1 横・2×2 横・4×5 縦・5×5 縦など）は、写真を上・表を下に置く
+const WIDE_CARD_ASPECT: f64 = 2.0;
+/// 最初の形の余白・写真と表のすきま（インチ）
+const STARTER_MARGIN: f64 = 0.1;
+/// 12pt で「写真タイトル」（6 文字）が収まる項目名の幅（インチ）
+const STARTER_LABEL_MIN: f64 = 1.1;
+
+/// 写真枠 1 つと、項目名・項目値の行を並べた最初の形。カードの縦横比で、実物に多い並べ方を選ぶ
+/// （横長は写真が左・表が右、それ以外は写真が上・表が下）
 pub fn starter_template(header: Header) -> Template {
     let mut doc = Document::new(
         Template {
@@ -857,16 +868,36 @@ pub fn starter_template(header: Header) -> Template {
     );
     let frame = crate::layout::card_frame(&doc.template);
     let (w, h) = (frame.width, frame.height);
-    let m = 0.1;
-    let photo_w = (w * 0.56).min(h * 1.33);
-    doc.add_picture([m, m, m + photo_w, h - m]);
-    let x = m + photo_w + 0.1;
-    let label_w = ((w - x - m) * 0.32).max(0.5);
-    let value_w = (w - x - m - label_w).max(0.5);
-    let fields = ["工種", "種別", "写真タイトル", "撮影箇所", "撮影年月日"];
-    let row_h = 0.25_f64.min((h - 2.0 * m) / fields.len() as f64);
-    for (k, f) in fields.iter().enumerate() {
-        doc.add_field_row(f, (x, m + k as f64 * row_h), label_w, value_w, row_h);
+    let m = STARTER_MARGIN;
+    let rows = STARTER_FIELDS.len() as f64;
+    if w >= h * WIDE_CARD_ASPECT {
+        let photo_w = (w * 0.56).min(h * 1.33);
+        doc.add_picture([m, m, m + photo_w, h - m]);
+        let x = m + photo_w + 0.1;
+        let label_w = ((w - x - m) * 0.32).max(0.5);
+        let value_w = (w - x - m - label_w).max(0.5);
+        let row_h = 0.25_f64.min((h - 2.0 * m) / rows);
+        for (k, f) in STARTER_FIELDS.iter().enumerate() {
+            doc.add_field_row(f, (x, m + k as f64 * row_h), label_w, value_w, row_h);
+        }
+    } else {
+        // 小さいカードでも、写真が高さの半分ほどは残るよう、行の高さを縮める
+        let row_h = 0.25_f64.min((h - 2.0 * m - STARTER_MARGIN) * 0.45 / rows);
+        let table_top = h - m - row_h * rows;
+        doc.add_picture([m, m, w - m, table_top - STARTER_MARGIN]);
+        let avail = w - 2.0 * m;
+        // 小さいカードでも、項目名（最長の「写真タイトル」）が切れないよう幅を確保する。ただし値の列を食い潰さない
+        let label_w = (avail * 0.32).max((avail * 0.55).min(STARTER_LABEL_MIN));
+        let value_w = avail - label_w;
+        for (k, f) in STARTER_FIELDS.iter().enumerate() {
+            doc.add_field_row(
+                f,
+                (m, table_top + k as f64 * row_h),
+                label_w,
+                value_w,
+                row_h,
+            );
+        }
     }
     doc.template
 }
@@ -1794,6 +1825,60 @@ mod tests {
                 assert!(n[2] <= frame.width + 1e-9 && n[3] <= frame.height + 1e-9);
             }
             assert_eq!(Template::parse(&t.to_bytes()).unwrap(), t);
+        }
+    }
+
+    #[test]
+    fn starter_arrangement_follows_the_card_shape() {
+        // (横, 縦, 縦向き, 写真が左で表が右か)。実物の 1×3・1×4 縦は左右、他は上下
+        let cases = [
+            (1u16, 3u16, true, true),
+            (1, 4, true, true),
+            (1, 5, true, true),
+            (1, 3, false, true),
+            (1, 1, true, false),
+            (1, 1, false, false),
+            (1, 2, true, false),
+            (2, 1, false, false),
+            (2, 2, false, false),
+            (2, 3, true, false),
+            (3, 4, true, false),
+            (4, 5, true, false),
+            (5, 5, true, false),
+            (10, 10, true, false),
+        ];
+        for (cols, rows, portrait, side_by_side) in cases {
+            let header = Header {
+                cols,
+                rows,
+                orientation: portrait as u32,
+                ..Header::default()
+            };
+            let (w, h) = crate::layout::a4_division(&header);
+            let t = starter_template(header);
+            let name = format!("{cols}x{rows} portrait={portrait}");
+            assert_eq!(t.objects.len(), 1 + 5 * 2, "{name}");
+            // 物はすべて、A4 ÷ 分割数のカードの中に収まる（枠を広げて逃げていない）
+            for o in &t.objects {
+                let n = o.normalized();
+                assert!(n[0] >= 0.0 && n[1] >= 0.0, "{name} {n:?}");
+                assert!(n[2] <= w + 1e-9 && n[3] <= h + 1e-9, "{name} {n:?}");
+            }
+            let photo = t.objects[0].normalized();
+            let table_left = t.objects[1..]
+                .iter()
+                .map(|o| o.normalized()[0])
+                .fold(f64::MAX, f64::min);
+            let table_top = t.objects[1..]
+                .iter()
+                .map(|o| o.normalized()[1])
+                .fold(f64::MAX, f64::min);
+            if side_by_side {
+                assert!(photo[2] <= table_left, "{name}: 写真が表の左に無い");
+            } else {
+                assert!(photo[3] <= table_top, "{name}: 写真が表の上に無い");
+                assert!(photo[3] - photo[1] > 0.0, "{name}");
+            }
         }
     }
 
