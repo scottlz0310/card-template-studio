@@ -139,7 +139,6 @@ jobs:
     needs: finalize
     # finalize が成功したとき（= この実行でリリースを公開したとき）だけ。リリースでない push では finalize が skipped
     if: ${{ !cancelled() && needs.finalize.result == 'success' }}
-    name: Notify Scoop bucket
     runs-on: ubuntu-latest
     permissions: {}
     steps:
