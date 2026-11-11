@@ -23,6 +23,7 @@ scoop install card-template-studio
 - 更新は `scoop update card-template-studio`、削除は `scoop uninstall card-template-studio`。
 - スタートメニューに「Card Template Studio」のショートカットができる。コマンドラインからは `card-template-studio` で起動できる。
 - Scoop は、インストールのときに、ZIP の SHA-256 をマニフェストに記録された値と照合する（バケットの自動更新が、Release の `.sha256` から値を取る）。
+- 新しい版は、リリースの後、バケットの更新 PR がマージされてから Scoop に出る（リリースがバケットの更新を起動する。起動できなかったときは、バケットの毎日の確認が拾う）。
 - Scoop が取得したファイルには、ブラウザのダウンロードの印が付かないため、下の SmartScreen の警告は出にくい。
 
 ### ZIP から導入する
