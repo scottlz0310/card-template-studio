@@ -1,7 +1,7 @@
 //! カードの大きさと配置範囲。
 //!
-//! 本体のカード寸法の計算はまだ特定できていないため（MECHANICS.md の未確定事項）、
-//! 手元の既存テンプレートの座標（OBJ の矩形）を実測した値を初期値として使う。
+//! カードの大きさは A4 ÷ 分割数。既存テンプレートの座標（OBJ の矩形）を実測した値は、
+//! 「これまで実際に使われていた配置範囲」の目安として画面に点線で添えるだけに使う。
 
 use crate::tpl::{A4_LONG_INCH, A4_SHORT_INCH, Header, Template};
 
@@ -116,25 +116,13 @@ pub struct CardFrame {
     pub height: f64,
     /// 既存テンプレートで使われている配置範囲（インチ, left/top/right/bottom）
     pub used: Option<[f64; 4]>,
-    /// 実測ではなく A4 を分割数で割った推定かどうか
-    pub estimated: bool,
 }
 
-/// カード枠を決める。実測のあるレイアウトは「左・上の最小余白を右・下にも取った大きさ」、
-/// 無いレイアウトは A4 ÷ 分割数（推定）。開いているテンプレートの物がはみ出すときは広げる。
+/// カード枠を決める。カードの大きさは、A4 ÷ 分割数（実機で 1×4 縦の緑の枠を測り、幅と高さの比が
+/// A4 ÷ 分割数に 0.1% 以内で一致した）。開いているテンプレートの物がはみ出すときは広げる。
+/// 既存テンプレートで使われていた配置範囲（実測）が分かるレイアウトは、`used` に添える。
 pub fn card_frame(t: &Template) -> CardFrame {
-    let (mut w, mut h, used, estimated) = match measured(&t.header) {
-        Some(m) => (
-            m.max_right + m.min_left,
-            m.max_bottom + m.min_top,
-            Some([m.min_left, m.min_top, m.max_right, m.max_bottom]),
-            false,
-        ),
-        None => {
-            let (w, h) = a4_division(&t.header);
-            (w, h, None, true)
-        }
-    };
+    let (mut w, mut h) = a4_division(&t.header);
     for o in &t.objects {
         let [_, _, r, b] = o.normalized();
         w = w.max(r);
@@ -143,8 +131,7 @@ pub fn card_frame(t: &Template) -> CardFrame {
     CardFrame {
         width: w,
         height: h,
-        used,
-        estimated,
+        used: measured(&t.header).map(|m| [m.min_left, m.min_top, m.max_right, m.max_bottom]),
     }
 }
 
@@ -170,16 +157,28 @@ mod tests {
     use crate::tpl::{Body, CaptionBody, Object};
 
     #[test]
-    fn frame_uses_measured_values_or_estimate() {
-        let cases = [((1u16, 3u16, 1u32), false), ((3, 4, 1), true)];
-        for ((cols, rows, orientation), estimated) in cases {
-            let mut t = Template::default();
-            t.header.cols = cols;
-            t.header.rows = rows;
-            t.header.orientation = orientation;
+    fn frame_is_the_a4_division_for_every_layout() {
+        // 実機で測ると、実測の材料（既存テンプレートの座標）が偏っているレイアウトでも A4 ÷ 分割数だった
+        let cases = [
+            (1u16, 3u16, true),
+            (1, 4, true),
+            (1, 1, false),
+            (2, 1, false),
+            (2, 2, false),
+            (5, 5, true),
+            (3, 4, true),
+        ];
+        for (cols, rows, portrait) in cases {
+            let t = Template {
+                header: header(cols, rows, portrait),
+                ..Template::default()
+            };
             let f = card_frame(&t);
-            assert_eq!(f.estimated, estimated, "{cols}x{rows}");
-            assert!(f.width > 0.0 && f.height > 0.0);
+            let (w, h) = a4_division(&t.header);
+            assert!(
+                (f.width - w).abs() < 1e-9 && (f.height - h).abs() < 1e-9,
+                "{cols}x{rows} {portrait}"
+            );
         }
     }
 
@@ -219,19 +218,22 @@ mod tests {
     }
 
     #[test]
-    fn measured_frame_adds_the_margin_on_the_far_side() {
-        let t = Template::default();
-        let f = card_frame(&t);
-        let m = measured(&t.header).unwrap();
-        assert!((f.width - (m.max_right + m.min_left)).abs() < 1e-9);
-        assert!((f.height - (m.max_bottom + m.min_top)).abs() < 1e-9);
-        assert_eq!(
-            f.used,
-            Some([m.min_left, m.min_top, m.max_right, m.max_bottom])
-        );
-        assert!(!f.estimated);
+    fn used_range_is_attached_only_where_measured() {
+        let cases = [((1u16, 3u16), true), ((3, 4), false)];
+        for ((cols, rows), has) in cases {
+            let t = Template {
+                header: header(cols, rows, true),
+                ..Template::default()
+            };
+            let f = card_frame(&t);
+            let m = measured(&t.header);
+            assert_eq!(f.used.is_some(), has, "{cols}x{rows}");
+            assert_eq!(
+                f.used,
+                m.map(|m| [m.min_left, m.min_top, m.max_right, m.max_bottom])
+            );
+        }
     }
-
     #[test]
     fn a4_division_splits_the_sheet() {
         let (w, h) = a4_division(&header(2, 3, true));
@@ -243,15 +245,6 @@ mod tests {
         // 0 分割でも 0 除算にならない
         let (w, h) = a4_division(&header(0, 0, true));
         assert!(w.is_finite() && h.is_finite());
-    }
-
-    #[test]
-    fn estimated_frame_has_no_used_range() {
-        let f = card_frame(&Template {
-            header: header(3, 4, true),
-            ..Template::default()
-        });
-        assert!(f.estimated && f.used.is_none());
     }
 
     #[test]
