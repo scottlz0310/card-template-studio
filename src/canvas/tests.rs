@@ -901,22 +901,14 @@ fn table_tool_places_a_whole_table_in_the_dragged_rect() {
 
 #[test]
 fn starter_labels_fit_on_one_line_in_their_rows_for_every_division() {
-    // 小さいカード（4×5・5×5 など）でも、項目名が折り返されず、行の高さに収まる（折り返すと後半が欠ける）。
+    // 「任意」で選べる全分割（1〜10 × 1〜10、両方の向き）で、項目名が折り返されず行の高さに収まる（折り返すと後半が欠ける）。
     // 描画（draw_caption_text）と同じフォント・余白・行間で、1 pt = 1 px として測る
     let mut h = Harness::new();
     crate::install_fonts(&h.ctx);
     h.frame(|_| {});
-    let divisions = [
-        (1u16, 1u16, true),
-        (1, 2, true),
-        (2, 1, false),
-        (2, 2, false),
-        (2, 3, true),
-        (3, 4, true),
-        (4, 5, true),
-        (5, 5, true),
-        (10, 10, true),
-    ];
+    let divisions = (1..=10u16).flat_map(|c| {
+        (1..=10u16).flat_map(move |r| [true, false].map(move |portrait| (c, r, portrait)))
+    });
     for (cols, rows, portrait) in divisions {
         let t = crate::doc::starter_template(tpl::Header {
             cols,
