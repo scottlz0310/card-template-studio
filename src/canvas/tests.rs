@@ -902,7 +902,8 @@ fn table_tool_places_a_whole_table_in_the_dragged_rect() {
 #[test]
 fn starter_labels_fit_on_one_line_in_their_rows_for_every_division() {
     // 「任意」で選べる全分割（1〜10 × 1〜10、両方の向き）で、項目名が折り返されず行の高さに収まる（折り返すと後半が欠ける）。
-    // 描画（draw_caption_text）と同じフォント・余白・行間で、1 pt = 1 px として測る
+    // 描画（draw_caption_text）と同じフォント・行間で、1 pt = 1 px として測る。左右の余白は、実機（本体）で測った
+    // 上限（4.9pt）を使う（このアプリの描画の 2.83pt より厳しい。本体は 4×5 縦の 63pt の列で、60pt の「写真タイトル」を折り返した）
     let mut h = Harness::new();
     crate::install_fonts(&h.ctx);
     h.frame(|_| {});
@@ -926,7 +927,7 @@ fn starter_labels_fit_on_one_line_in_their_rows_for_every_division() {
                 }
                 let r = o.normalized();
                 let (w_pt, h_pt) = ((r[2] - r[0]) * 72.0, (r[3] - r[1]) * 72.0);
-                let pad = (0.5 / MM_PER_INCH * 72.0).max(1.0);
+                const REAL_APP_PAD_W_PT: f32 = 4.9;
                 let px = tpl::read_fmt_u16(&c.fmt, fmt_off::SIZE).max(1) as f64 as f32;
                 let line_pct = tpl::read_fmt_u16(&c.fmt, fmt_off::LINE_SPACE) as f32;
                 let mut job = egui::text::LayoutJob::default();
@@ -939,7 +940,7 @@ fn starter_labels_fit_on_one_line_in_their_rows_for_every_division() {
                         ..Default::default()
                     },
                 );
-                job.wrap.max_width = (w_pt as f32 - 2.0 * pad as f32).max(1.0);
+                job.wrap.max_width = (w_pt as f32 - REAL_APP_PAD_W_PT).max(1.0);
                 let galley = ui.painter().layout_job(job);
                 let label = c.text.to_string_lossy();
                 assert_eq!(galley.rows.len(), 1, "{name}: 「{label}」が折り返された");

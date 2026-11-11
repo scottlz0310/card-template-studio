@@ -861,14 +861,18 @@ const STARTER_TABLE_MAX_RATIO: f64 = 0.5;
 const LINE_HEIGHT_RATIO: f64 = 1.1;
 /// 項目名の列が、描ける幅（左右の余白を除く）の何割までを使ってよいか
 const STARTER_LABEL_MAX_RATIO: f64 = 0.55;
-/// 文字項目が、左右・上下の内側に取る余白の合計（pt）。描画側は 0.5 mm ずつ = 約 2.83 pt なので切り上げる
-const CAPTION_PAD_PT: f64 = 3.0;
+/// 文字項目が、左右の内側に取る余白の合計（pt）。実機（本体）で測ると、1×3 縦では 12pt の「写真タイトル」
+/// （72pt）が 76.9pt の列に収まり、4×5 縦では 10pt（60pt）が 63pt の列で折り返された。本体の余白は
+/// 3pt より大きく 4.9pt 以下なので、余裕を見て 7pt とする（このアプリの描画の 2.83pt より大きい）
+const CAPTION_PAD_W_PT: f64 = 7.0;
+/// 文字項目が、上下の内側に取る余白の合計（pt）
+const CAPTION_PAD_H_PT: f64 = 3.0;
 
 /// 項目名の列の幅と行の高さに、`longest` 文字の項目名が 1 行で収まる文字の大きさ（pt, 整数）。
 /// 折り返す・行より高いと、後半が欠ける
 fn fitting_size(label_w: f64, row_h: f64, longest: f64) -> f64 {
-    let by_width = (label_w * 72.0 - CAPTION_PAD_PT) / longest;
-    let by_height = (row_h * 72.0 - CAPTION_PAD_PT) / LINE_HEIGHT_RATIO;
+    let by_width = (label_w * 72.0 - CAPTION_PAD_W_PT) / longest;
+    let by_height = (row_h * 72.0 - CAPTION_PAD_H_PT) / LINE_HEIGHT_RATIO;
     by_width
         .min(by_height)
         .floor()
@@ -904,7 +908,9 @@ pub fn starter_template(header: Header) -> Template {
         let x = m + photo_w + m;
         let room = w - x - m;
         origin = (x, m);
-        label_w = (room * 0.32).max(0.5).min(room * 0.6);
+        // 標準の大きさ（12pt）の項目名が収まる幅までは広げる（収まらない狭いカードは、文字を縮める）
+        let label_for_std = (longest * STARTER_SIZE_PT + CAPTION_PAD_W_PT) / 72.0;
+        label_w = (room * 0.32).max(0.5).max(label_for_std).min(room * 0.6);
         value_w = room - label_w;
         row_h = 0.25_f64.min((h - 2.0 * m) / rows);
         size = fitting_size(label_w, row_h, longest);
@@ -913,18 +919,18 @@ pub fn starter_template(header: Header) -> Template {
         // 両方で制限する。どちらも満たせない極端に小さいカードでも、写真の高さが正になる
         let avail = w - 2.0 * m;
         let table_room = (h - 2.0 * m - STARTER_MARGIN) * STARTER_TABLE_MAX_RATIO;
-        let by_width = (avail * 72.0 * STARTER_LABEL_MAX_RATIO - CAPTION_PAD_PT) / longest;
-        let by_height = (table_room * 72.0 / rows - CAPTION_PAD_PT) / LINE_HEIGHT_RATIO;
+        let by_width = (avail * 72.0 * STARTER_LABEL_MAX_RATIO - CAPTION_PAD_W_PT) / longest;
+        let by_height = (table_room * 72.0 / rows - CAPTION_PAD_H_PT) / LINE_HEIGHT_RATIO;
         size = by_width
             .min(by_height)
             .floor()
             .clamp(STARTER_MIN_SIZE_PT, STARTER_SIZE_PT);
-        label_w = ((longest * size + CAPTION_PAD_PT) / 72.0)
+        label_w = ((longest * size + CAPTION_PAD_W_PT) / 72.0)
             .max(avail * 0.32)
             .min(avail * 0.8);
         value_w = avail - label_w;
         // 行の高さは、文字の高さが入る分を下限にして、残りで写真の高さを半分ほど残すよう縮める
-        let row_min = (size * LINE_HEIGHT_RATIO + CAPTION_PAD_PT) / 72.0;
+        let row_min = (size * LINE_HEIGHT_RATIO + CAPTION_PAD_H_PT) / 72.0;
         row_h = row_min.max(0.25_f64.min(table_room * 0.9 / rows));
         let table_top = h - m - row_h * rows;
         photo = [m, m, w - m, table_top - STARTER_MARGIN];
