@@ -53,6 +53,7 @@ pub struct ViewSettings {
     pub snap_objects: bool,
     pub show_used: bool,
     pub sample_values: bool,
+    pub theme: crate::theme::ThemeChoice,
 }
 
 impl Default for ViewSettings {
@@ -70,6 +71,7 @@ impl ViewSettings {
             snap_objects: view.snap_objects,
             show_used: view.show_used,
             sample_values: view.sample_values,
+            theme: view.theme,
         }
     }
 
@@ -80,6 +82,7 @@ impl ViewSettings {
         view.snap_objects = self.snap_objects;
         view.show_used = self.show_used;
         view.sample_values = self.sample_values;
+        view.theme = self.theme;
     }
 }
 
@@ -271,6 +274,7 @@ mod tests {
                 snap_objects: true,
                 show_used: false,
                 sample_values: true,
+                theme: crate::theme::ThemeChoice::Dark,
             },
             colors: Colors {
                 recent: vec![[0xff, 0x00, 0x00], [0x44, 0x72, 0xc4]],

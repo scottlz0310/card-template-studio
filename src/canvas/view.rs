@@ -17,6 +17,8 @@ pub struct View {
     pub show_used: bool,
     /// 項目値の欄に見本の文字を表示する
     pub sample_values: bool,
+    /// 画面のテーマ（システムに合わせる／ライト／ダーク）
+    pub theme: crate::theme::ThemeChoice,
 }
 
 impl Default for View {
@@ -31,6 +33,7 @@ impl Default for View {
             snap_objects: true,
             show_used: true,
             sample_values: false,
+            theme: crate::theme::ThemeChoice::default(),
         }
     }
 }

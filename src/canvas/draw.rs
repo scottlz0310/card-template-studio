@@ -477,9 +477,14 @@ pub(super) fn draw_passthrough(p: &egui::Painter, xf: &Xf, o: &Object, r: Rect) 
     );
 }
 
-pub(super) fn draw_rulers(p: &egui::Painter, area: Rect, xf: &Xf, cursor: Option<(f64, f64)>) {
-    let bg = Color32::from_rgb(0xf3, 0xf5, 0xf8);
-    let fg = Color32::from_rgb(0x6b, 0x74, 0x80);
+pub(super) fn draw_rulers(
+    p: &egui::Painter,
+    area: Rect,
+    xf: &Xf,
+    cursor: Option<(f64, f64)>,
+    colors: &crate::theme::Colors,
+) {
+    let (bg, fg) = (colors.ruler_bg, colors.ruler_fg);
     let top = Rect::from_min_max(area.min, pos2(area.right(), area.top() + RULER));
     let left = Rect::from_min_max(area.min, pos2(area.left() + RULER, area.bottom()));
     p.rect_filled(top, 0.0, bg);
@@ -574,13 +579,13 @@ pub(super) fn draw_rulers(p: &egui::Painter, area: Rect, xf: &Xf, cursor: Option
             pos2(area.left(), top.bottom()),
             pos2(area.right(), top.bottom()),
         ],
-        Stroke::new(1.0, Color32::from_gray(200)),
+        Stroke::new(1.0, colors.ruler_line),
     );
     p.line_segment(
         [
             pos2(left.right(), area.top()),
             pos2(left.right(), area.bottom()),
         ],
-        Stroke::new(1.0, Color32::from_gray(200)),
+        Stroke::new(1.0, colors.ruler_line),
     );
 }

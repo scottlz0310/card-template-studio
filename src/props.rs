@@ -1,11 +1,10 @@
 //! 右側のプロパティ欄。値を変えたら Document::checkpoint で「元に戻す」に積む。
 
-use crate::canvas::ACCENT;
 use crate::doc::{Document, KNOWN_FIELDS};
 use crate::layout::{self, card_frame};
 use crate::layout_picker;
 use crate::tpl::{self, Body, Fmt, MM_PER_INCH, SjisString, fmt_off};
-use egui::{Color32, RichText};
+use egui::RichText;
 
 pub const FACES: &[&str] = &[
     "メイリオ",
@@ -43,7 +42,8 @@ const EDITABLE_FIELDS: &[(usize, usize)] = &[
 /// 見出しを出し、その id を返す（直下のウィジェットの名前に結び付けるため）
 fn section(ui: &mut egui::Ui, title: &str) -> egui::Id {
     ui.add_space(6.0);
-    let id = ui.label(RichText::new(title).strong().color(ACCENT)).id;
+    let accent = crate::theme::Colors::of_ui(ui).accent_text;
+    let id = ui.label(RichText::new(title).strong().color(accent)).id;
     ui.separator();
     id
 }
@@ -98,7 +98,7 @@ fn sjis_text_edit(
     }
     if ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) {
         ui.colored_label(
-            Color32::from_rgb(0xc0, 0x39, 0x2b),
+            crate::theme::Colors::of_ui(ui).error,
             "本体で扱えない文字（cp932 に無い文字）は入力できません",
         );
     }
@@ -161,7 +161,7 @@ fn card_props(ui: &mut egui::Ui, doc: &mut Document) {
                 m.samples
             ))
             .small()
-            .color(Color32::from_rgb(0x2e, 0x7d, 0x57)),
+            .color(crate::theme::Colors::of_ui(ui).ok),
         );
     }
 

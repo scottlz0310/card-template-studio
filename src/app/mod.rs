@@ -71,6 +71,8 @@ pub struct StudioApp {
     shot: Option<Shot>,
     allow_close: bool,
     last_title: String,
+    /// 画面に反映済みのテーマ（メニューで変わったら、反映し直す）
+    applied_theme: crate::theme::ThemeChoice,
     dialogs: Box<dyn Dialogs>,
     /// 保存する設定（最後に使ったフォルダ、表示の設定）。表示の設定は、毎フレーム `view` から取り込む
     settings: Settings,
@@ -112,6 +114,7 @@ impl StudioApp {
         let mut view = View::default();
         settings.view.apply_to(&mut view);
         crate::palette::set_recent(ctx, &settings.colors.recent);
+        crate::theme::apply_choice(ctx, view.theme);
         let mut app = Self {
             doc: Document::new(
                 doc::starter_template(Header::default()),
@@ -128,6 +131,7 @@ impl StudioApp {
             shot: None,
             allow_close: false,
             last_title: String::new(),
+            applied_theme: settings.view.theme,
             dialogs,
             settings_attempted: settings.clone(),
             settings,
@@ -255,6 +259,10 @@ impl StudioApp {
 impl eframe::App for StudioApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if self.view.theme != self.applied_theme {
+            crate::theme::apply_choice(&ctx, self.view.theme);
+            self.applied_theme = self.view.theme;
+        }
         let title = format!(
             "{}{} - カードテンプレート工房",
             self.doc.name,
@@ -357,15 +365,5 @@ impl eframe::App for StudioApp {
 }
 
 fn style(ctx: &egui::Context) {
-    ctx.set_theme(egui::Theme::Light);
-    ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        s.spacing.button_padding = egui::vec2(8.0, 4.0);
-        s.visuals.selection.bg_fill = ACCENT;
-        s.visuals.selection.stroke = egui::Stroke::new(1.0, Color32::WHITE);
-        s.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(5);
-        s.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(5);
-        s.visuals.widgets.active.corner_radius = egui::CornerRadius::same(5);
-        s.visuals.panel_fill = Color32::from_rgb(0xf7, 0xf8, 0xfa);
-    });
+    crate::theme::apply_style(ctx, ACCENT);
 }

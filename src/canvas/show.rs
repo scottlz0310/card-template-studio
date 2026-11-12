@@ -23,7 +23,8 @@ pub fn show(
     let avail = ui.available_rect_before_wrap();
     let (resp, painter) = ui.allocate_painter(avail.size(), Sense::click_and_drag());
     let area = resp.rect;
-    painter.rect_filled(area, 0.0, Color32::from_rgb(0xdf, 0xe3, 0xe8));
+    let colors = crate::theme::Colors::of_ui(ui);
+    painter.rect_filled(area, 0.0, colors.workspace);
 
     let work = Rect::from_min_max(area.min + vec2(RULER, RULER), area.max);
     if view.fit_pending && work.width() > 50.0 {
@@ -277,7 +278,7 @@ pub fn show(
         );
     }
 
-    draw_rulers(&painter, area, &xf, st.cursor_inch);
+    draw_rulers(&painter, area, &xf, st.cursor_inch, &colors);
 
     // ----- 右クリックの操作 -----
     let mut action = CanvasAction::None;
