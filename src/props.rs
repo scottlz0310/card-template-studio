@@ -65,9 +65,10 @@ fn mm_drag(ui: &mut egui::Ui, v: &mut f64, label: &str) -> bool {
     }
 }
 
+/// 色のボタン（押すと、代表的な色のパレットが開く。#64）。TPL の色（COLORREF）と RGB を変換する
 fn color_button(ui: &mut egui::Ui, c: &mut u32) -> bool {
     let mut rgb = tpl::colorref_rgb(*c);
-    if ui.color_edit_button_srgb(&mut rgb).changed() {
+    if crate::palette::color_button(ui, &mut rgb) {
         *c = tpl::rgb_colorref(rgb);
         true
     } else {
@@ -1477,6 +1478,41 @@ mod tests {
         let why = h.state().doc.notice.clone().expect("理由");
         assert!(why.contains("カードの下端に収まらない"), "{why}");
         assert!(!h.state().doc.can_undo());
+    }
+
+    #[test]
+    fn picking_a_palette_color_changes_the_caption_color_and_is_remembered() {
+        let mut h = harness(vec![caption("名", "", false, 0.1)], &[0]);
+        // 文字色のボタン（初期は黒）を押すと、パレット（テーマの色・標準の色）が開く
+        h.get_all_by_label("色 #000000")
+            .next()
+            .expect("文字色")
+            .click();
+        h.run();
+        h.get_by_label("テーマの色");
+        h.get_by_label("標準の色");
+        // 標準の赤を選ぶと、文字色が変わり、パレットが閉じ、最近使った色に入る
+        h.get_by_label("色 #FF0000").click();
+        h.run();
+        assert_eq!(
+            tpl::read_fmt(&fmt_of(&h, 0), fmt_off::TEXT_COLOR),
+            tpl::rgb_colorref([0xff, 0x00, 0x00])
+        );
+        assert!(h.query_by_label("テーマの色").is_none(), "選んだら閉じる");
+        assert_eq!(crate::palette::recent(&h.ctx), vec![[0xff, 0x00, 0x00]]);
+        // もう一度開くと、「最近使った色」に出る。別の色を選ぶと、新しい順に並ぶ
+        h.get_all_by_label("色 #FF0000")
+            .next()
+            .expect("文字色")
+            .click();
+        h.run();
+        h.get_by_label("最近使った色");
+        h.get_by_label("色 #00B050").click();
+        h.run();
+        assert_eq!(
+            crate::palette::recent(&h.ctx),
+            vec![[0x00, 0xb0, 0x50], [0xff, 0x00, 0x00]]
+        );
     }
 
     #[test]

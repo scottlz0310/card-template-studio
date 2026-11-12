@@ -111,6 +111,7 @@ impl StudioApp {
         };
         let mut view = View::default();
         settings.view.apply_to(&mut view);
+        crate::palette::set_recent(ctx, &settings.colors.recent);
         let mut app = Self {
             doc: Document::new(
                 doc::starter_template(Header::default()),
@@ -190,6 +191,7 @@ impl StudioApp {
             return;
         }
         self.settings.view = ViewSettings::of(&self.view);
+        self.settings.colors.recent = crate::palette::recent(ctx);
         if self.settings == self.settings_attempted {
             return;
         }

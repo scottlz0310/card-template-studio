@@ -565,6 +565,9 @@ fn custom_settings() -> Settings {
             show_used: false,
             sample_values: true,
         },
+        colors: crate::settings::Colors {
+            recent: vec![[0xff, 0x00, 0x00], [0x44, 0x72, 0xc4]],
+        },
     }
 }
 
@@ -578,6 +581,28 @@ fn saved_settings_are_restored_at_startup_and_not_written_back() {
     assert_eq!(a.settings.folders, custom_settings().folders);
     assert!(a.modal.is_none() && a.toast.is_none());
     assert!(saves(&store).is_empty(), "読んだだけでは書かない");
+}
+
+#[test]
+fn recent_colors_are_restored_at_startup_and_saved_when_they_change() {
+    let store = MemoryStore::default();
+    store.0.borrow_mut().stored = custom_settings();
+    let (mut h, _) = harness_with_store(None, store.clone());
+    // 起動時に、保存してあった最近使った色が、パレットに入る（読んだだけでは、書かない）
+    assert_eq!(
+        crate::palette::recent(&h.ctx),
+        custom_settings().colors.recent
+    );
+    assert!(saves(&store).is_empty());
+    // 色を選んで並びが変わると、設定に書き出される
+    crate::palette::set_recent(&h.ctx, &[[0, 0xb0, 0x50], [0xff, 0x00, 0x00]]);
+    h.run();
+    let saved = saves(&store);
+    assert_eq!(saved.len(), 1);
+    assert_eq!(
+        saved[0].colors.recent,
+        vec![[0, 0xb0, 0x50], [0xff, 0x00, 0x00]]
+    );
 }
 
 #[test]
