@@ -22,6 +22,15 @@ const FILE_NAME: &str = "settings.json";
 pub struct Settings {
     pub folders: Folders,
     pub view: ViewSettings,
+    pub colors: Colors,
+}
+
+/// 色の選択の記憶
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Colors {
+    /// 最近使った色（新しい順。最大 `palette::RECENT_MAX` 個）
+    pub recent: Vec<[u8; 3]>,
 }
 
 /// ファイルダイアログの開始位置に使う、最後に使ったフォルダ
@@ -263,6 +272,9 @@ mod tests {
                 show_used: false,
                 sample_values: true,
             },
+            colors: Colors {
+                recent: vec![[0xff, 0x00, 0x00], [0x44, 0x72, 0xc4]],
+            },
         }
     }
 
@@ -346,6 +358,16 @@ mod tests {
     fn loading_tolerates_missing_and_unknown_fields() {
         let cases = [
             ("{}", Settings::default()),
+            // 最近使った色が無い古い設定は、空の並びで読める。ある設定は、そのまま読める
+            (
+                r#"{"colors": {"recent": [[1, 2, 3], [255, 0, 0]]}}"#,
+                Settings {
+                    colors: Colors {
+                        recent: vec![[1, 2, 3], [255, 0, 0]],
+                    },
+                    ..Settings::default()
+                },
+            ),
             (
                 r#"{"view": {"show_grid": false}}"#,
                 Settings {

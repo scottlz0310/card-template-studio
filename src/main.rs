@@ -5,6 +5,7 @@ mod canvas;
 mod doc;
 mod layout;
 mod layout_picker;
+mod palette;
 mod props;
 mod settings;
 #[cfg(test)]
