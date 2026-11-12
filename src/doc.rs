@@ -318,7 +318,10 @@ impl Document {
                 out.push(LayerEntry::Part(i));
                 continue;
             }
+            // row_of は、起点の高さの帯で判定するので、起点によって結果が変わる（高さの違う隣り合う枠）。
+            // すでに出した部品は入れず、どの部品も 1 つの項目だけに属するようにする
             let mut row = self.row_of(i);
+            row.retain(|&j| !taken[j]);
             row.sort_by(|&p, &q| objs[p].normalized()[0].total_cmp(&objs[q].normalized()[0]));
             for &j in &row {
                 taken[j] = true;
@@ -1637,6 +1640,35 @@ mod tests {
     }
 
     #[test]
+    fn click_select_groups_uses_each_part_once_when_row_heights_differ() {
+        // 高さの違う隣り合う枠（0 と 1）、その下に枠 2。一覧の項目は 3 つ、どの部品も 1 つの項目にだけ入る
+        let mut d = Document::new(Template::default(), "t", None);
+        d.add_caption("字", "", false, [0.0, 0.0, 1.0, 0.25]);
+        d.add_caption("字", "", false, [1.0, 0.0, 2.0, 0.75]);
+        d.add_caption("字", "", false, [0.0, 1.0, 1.0, 1.25]);
+        d.selection.clear();
+        let groups: Vec<Vec<usize>> = d.layer_entries().iter().map(LayerEntry::members).collect();
+        assert_eq!(groups, vec![vec![0], vec![1], vec![2]]);
+        let (none, shift) = (
+            ClickMods::default(),
+            ClickMods {
+                shift: true,
+                toggle: false,
+            },
+        );
+        d.click_select_groups(&[0], none, &groups);
+        d.click_select_groups(&[2], shift, &groups);
+        assert_eq!(
+            d.selection,
+            [0, 1, 2].into(),
+            "起点から、押した項目までの項目すべて"
+        );
+        d.click_select_groups(&[1], none, &groups);
+        d.click_select_groups(&[0], shift, &groups);
+        assert_eq!(d.selection, [0, 1].into());
+    }
+
+    #[test]
     fn layer_entries_group_rows_and_follow_the_position() {
         use LayerEntry::{Part, Row};
         // (名前, 部品 (種類 'c' = 文字項目 / 'p' = 写真枠, 矩形) を作った順, 一覧の並び)
@@ -1682,6 +1714,20 @@ mod tests {
                 vec![Part(0)],
             ),
             (
+                "高さの違う隣り合う文字は、どちらの部品も 1 つの項目にだけ入る（#69 の指摘）",
+                vec![('c', [0.0, 0.0, 1.0, 0.25]), ('c', [1.0, 0.0, 2.0, 0.75])],
+                vec![Part(0), Part(1)],
+            ),
+            (
+                "高い枠が、上下 2 つの行に接しても、どの部品も 1 つの項目にだけ入る",
+                vec![
+                    ('c', [0.0, 0.0, 1.0, 0.25]),
+                    ('c', [0.0, 0.25, 1.0, 0.5]),
+                    ('c', [1.0, 0.0, 2.0, 0.5]),
+                ],
+                vec![Row(vec![0, 2]), Part(1)],
+            ),
+            (
                 "上端が少しずれていても、同じ行（行の高さの中に収まる）",
                 vec![('c', [0.0, 0.0, 1.0, 0.25]), ('c', [1.0, 0.01, 2.0, 0.26])],
                 vec![Row(vec![0, 1])],
@@ -1696,7 +1742,13 @@ mod tests {
                     d.add_caption("字", "", false, rect);
                 }
             }
-            assert_eq!(d.layer_entries(), want, "{name}");
+            let got = d.layer_entries();
+            assert_eq!(got, want, "{name}");
+            // どの部品も、ちょうど 1 つの項目に入る（範囲選択が、一覧の項目を一意に決められる）
+            let mut all: Vec<usize> = got.iter().flat_map(LayerEntry::members).collect();
+            all.sort_unstable();
+            let n = d.template.objects.len();
+            assert_eq!(all, (0..n).collect::<Vec<_>>(), "{name}: 部品の重複・漏れ");
         }
     }
 
