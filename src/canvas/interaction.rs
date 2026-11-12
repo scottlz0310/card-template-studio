@@ -8,7 +8,7 @@ use super::geometry::{Handle, bounds_of, norm};
 use super::snap::{best_snap, candidates, snap, snap_point};
 use super::state::Drag;
 use super::tool::{TableSpec, Tool, default_size, place};
-use crate::doc::Document;
+use crate::doc::{ClickMods, Document};
 use crate::layout::CardFrame;
 use crate::tpl::{Body, MM_PER_INCH};
 
@@ -19,6 +19,15 @@ pub(super) type Pt = (f64, f64);
 pub(super) struct Mods {
     pub(super) shift: bool,
     pub(super) alt: bool,
+    /// Ctrl（Mac は Cmd）
+    pub(super) toggle: bool,
+}
+
+impl Mods {
+    /// 選択を作り直さず、いまの選択に加える操作か（Shift か Ctrl）
+    fn extends_selection(self) -> bool {
+        self.shift || self.toggle
+    }
 }
 
 /// 吸着の設定。`tol` は吸着が効く距離（インチ）
@@ -141,10 +150,11 @@ pub(super) fn press(doc: &mut Document, tool: Tool, p0: Pt, env: &Env) -> Press 
         }
         Target::Object(i) => {
             if !doc.selection.contains(&i) {
-                if !env.mods.shift {
+                if !env.mods.extends_selection() {
                     doc.selection.clear();
                 }
                 doc.selection.insert(i);
+                doc.set_anchor(i);
             }
             let origin: Vec<(usize, [f64; 4])> = doc
                 .selected_editable()
@@ -177,7 +187,7 @@ pub(super) fn press(doc: &mut Document, tool: Tool, p0: Pt, env: &Env) -> Press 
             }
         }
         Target::Empty => {
-            if !env.mods.shift {
+            if !env.mods.extends_selection() {
                 doc.selection.clear();
             }
             out.drag = Some(Drag::Marquee { start: p0 });
@@ -288,6 +298,25 @@ pub(super) fn drag(doc: &mut Document, d: &mut Drag, px: (f32, f32), p: Pt, env:
 
 // ----- 離す -----
 
+/// 部品ごとの、向きをそろえた矩形（番号は部品の番号）
+fn normalized_rects(doc: &Document) -> Vec<[f64; 4]> {
+    doc.template
+        .objects
+        .iter()
+        .map(|o| o.normalized())
+        .collect()
+}
+
+/// `area` の中に、すっかり含まれる部品の番号
+fn parts_inside(rects: &[[f64; 4]], area: [f64; 4]) -> Vec<usize> {
+    rects
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n[0] >= area[0] && n[2] <= area[2] && n[1] >= area[1] && n[3] <= area[3])
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// ドラッグを終えたときの遷移。`p` は離した位置（読み取れなければ `None`）
 pub(super) fn release(doc: &mut Document, d: Drag, p: Option<Pt>, tool: &mut Tool, env: &Env) {
     match d {
@@ -297,12 +326,9 @@ pub(super) fn release(doc: &mut Document, d: Drag, p: Option<Pt>, tool: &mut Too
                     (start.0.min(p.0), start.1.min(p.1)),
                     (start.0.max(p.0), start.1.max(p.1)),
                 );
-                for (i, o) in doc.template.objects.iter().enumerate() {
-                    let n = o.normalized();
-                    if n[0] >= a.0 && n[2] <= b.0 && n[1] >= a.1 && n[3] <= b.1 {
-                        doc.selection.insert(i);
-                    }
-                }
+                let rects = normalized_rects(doc);
+                doc.selection
+                    .extend(parts_inside(&rects, [a.0, a.1, b.0, b.1]));
             }
         }
         Drag::Place { tool: t, start } => {
@@ -325,14 +351,17 @@ pub(super) fn click(doc: &mut Document, tool: &mut Tool, p: Pt, env: &Env) {
         place(doc, *tool, s, (s.0 + w, s.1 + h), env.table);
         *tool = Tool::Select;
     } else if let Some(i) = hit_object(doc, p, env.hit_tol) {
-        if env.mods.shift {
-            if !doc.selection.remove(&i) {
-                doc.selection.insert(i);
-            }
-        } else {
-            doc.selection = [i].into();
-        }
-    } else if !env.mods.shift {
+        let mods = ClickMods {
+            shift: env.mods.shift,
+            toggle: env.mods.toggle,
+        };
+        // Shift+クリックは、起点の部品と押した部品を含む矩形に、すっかり含まれる部品を選ぶ（矩形選択と同じ規則）
+        let rects = normalized_rects(doc);
+        doc.click_select_by(i, mods, |anchor| {
+            let span = bounds_of([*rects.get(anchor)?, *rects.get(i)?].into_iter());
+            Some(parts_inside(&rects, span))
+        });
+    } else if !env.mods.extends_selection() {
         doc.selection.clear();
     }
 }
@@ -366,14 +395,27 @@ mod tests {
     const NO_MODS: Mods = Mods {
         shift: false,
         alt: false,
+        toggle: false,
     };
     const SHIFT: Mods = Mods {
         shift: true,
         alt: false,
+        toggle: false,
+    };
+    const CTRL: Mods = Mods {
+        shift: false,
+        alt: false,
+        toggle: true,
+    };
+    const CTRL_SHIFT: Mods = Mods {
+        shift: true,
+        alt: false,
+        toggle: true,
     };
     const ALT: Mods = Mods {
         shift: false,
         alt: true,
+        toggle: false,
     };
 
     fn cap(rect: [f64; 4]) -> Object {
@@ -432,10 +474,10 @@ mod tests {
         ]
     }
 
-    /// (押す前の選択, Shift, 押した後の選択, 動かす物)
-    type PressCase<'a> = (&'a [usize], bool, &'a [usize], &'a [usize]);
-    /// (押す前の選択, 位置, Shift, 押した後の選択)
-    type ClickCase<'a> = (&'a [usize], Pt, bool, &'a [usize]);
+    /// (押す前の選択, 修飾キー, 押した後の選択, 動かす物)
+    type PressCase<'a> = (&'a [usize], Mods, &'a [usize], &'a [usize]);
+    /// (押す前の選択, 位置, 修飾キー, 押した後の選択)
+    type ClickCase<'a> = (&'a [usize], Pt, Mods, &'a [usize]);
 
     fn move_drag(origin: &[(usize, [f64; 4])], start: Pt) -> Drag {
         Drag::Move {
@@ -560,23 +602,27 @@ mod tests {
     #[test]
     fn press_on_an_object_selects_and_prepares_a_move() {
         let frame = card_frame(&Template::default());
-        // (押す前の選択, Shift, 押した後の選択, 動かす物)
-        let cases: [PressCase; 4] = [
-            (&[], false, &[0], &[0]),
-            (&[1], false, &[0], &[0]),
-            (&[1], true, &[0, 1], &[0, 1]),
+        // (押す前の選択, 修飾キー, 押した後の選択, 動かす物)
+        let cases: [PressCase; 5] = [
+            (&[], NO_MODS, &[0], &[0]),
+            (&[1], NO_MODS, &[0], &[0]),
+            // Shift・Ctrl は、選択に加えて、まとめて動かす
+            (&[1], SHIFT, &[0, 1], &[0, 1]),
+            (&[1], CTRL, &[0, 1], &[0, 1]),
             // すでに選んでいる物を押すと、選択はそのまま（まとめて動かす）
-            (&[0, 1], false, &[0, 1], &[0, 1]),
+            (&[0, 1], NO_MODS, &[0, 1], &[0, 1]),
         ];
-        for (before, shift, after, moving) in cases {
+        for (before, mods, after, moving) in cases {
             let mut doc = doc_of(two_and_picture());
             doc.selection = before.iter().copied().collect();
-            let env = env_with(&frame, if shift { SHIFT } else { NO_MODS });
+            let env = env_with(&frame, mods);
             let out = press(&mut doc, Tool::Select, (1.5, 1.25), &env);
             assert_eq!(
                 doc.selection,
                 after.iter().copied().collect(),
-                "{before:?} shift={shift}"
+                "{before:?} shift={} ctrl={}",
+                mods.shift,
+                mods.toggle
             );
             match out.drag {
                 Some(Drag::Move { start, origin }) => {
@@ -626,9 +672,13 @@ mod tests {
     }
 
     #[test]
-    fn press_on_empty_space_starts_marquee_and_clears_unless_shift() {
+    fn press_on_empty_space_starts_marquee_and_clears_unless_shift_or_ctrl() {
         let frame = card_frame(&Template::default());
-        for (mods, kept) in [(NO_MODS, vec![]), (SHIFT, vec![0usize])] {
+        for (mods, kept) in [
+            (NO_MODS, vec![]),
+            (SHIFT, vec![0usize]),
+            (CTRL, vec![0usize]),
+        ] {
             let env = env_with(&frame, mods);
             let mut doc = doc_of(two_and_picture());
             doc.selection = [0].into();
@@ -928,18 +978,24 @@ mod tests {
     #[test]
     fn click_selection_rules() {
         let frame = card_frame(&Template::default());
-        // (押す前の選択, 位置, Shift, 押した後の選択)
-        let cases: [ClickCase; 7] = [
-            (&[], (1.5, 1.25), false, &[0]),
-            (&[0], (3.5, 1.25), false, &[1]),
-            (&[0], (3.5, 1.25), true, &[0, 1]),
-            (&[0, 1], (3.5, 1.25), true, &[0]),
-            (&[0, 1], (3.5, 1.25), false, &[1]),
-            (&[0], (1.5, 3.0), false, &[]),
-            (&[0], (1.5, 3.0), true, &[0]),
+        // (押す前の選択, 位置, 修飾キー, 押した後の選択)。選択は直接入れているので、起点はない
+        let cases: [ClickCase; 10] = [
+            (&[], (1.5, 1.25), NO_MODS, &[0]),
+            (&[0], (3.5, 1.25), NO_MODS, &[1]),
+            // Ctrl は、その部品だけを選択に加える・外す
+            (&[0], (3.5, 1.25), CTRL, &[0, 1]),
+            (&[0, 1], (3.5, 1.25), CTRL, &[0]),
+            (&[0, 1], (3.5, 1.25), NO_MODS, &[1]),
+            // 何も無い所: 修飾なしは選択を外す。Shift・Ctrl は、選択を保つ
+            (&[0], (1.5, 3.0), NO_MODS, &[]),
+            (&[0], (1.5, 3.0), CTRL, &[0]),
+            (&[0], (1.5, 3.0), SHIFT, &[0]),
+            // 起点がないときの Shift は、ふつうのクリック
+            (&[0], (3.5, 1.25), SHIFT, &[1]),
+            (&[0], (3.5, 1.25), CTRL_SHIFT, &[0, 1]),
         ];
-        for (before, p, shift, after) in cases {
-            let env = env_with(&frame, if shift { SHIFT } else { NO_MODS });
+        for (before, p, mods, after) in cases {
+            let env = env_with(&frame, mods);
             let mut doc = doc_of(two_and_picture());
             doc.selection = before.iter().copied().collect();
             let mut tool = Tool::Select;
@@ -947,9 +1003,94 @@ mod tests {
             assert_eq!(
                 doc.selection,
                 after.iter().copied().collect(),
-                "{before:?} {p:?} shift={shift}"
+                "{before:?} {p:?} shift={} ctrl={}",
+                mods.shift,
+                mods.toggle
             );
             assert!(!doc.dirty, "選択は文書の変更ではない");
+        }
+    }
+
+    /// 2×2 の表（0〜3）、離れた写真枠（4）、表の下の部品（5）
+    fn table_and_picture() -> Vec<Object> {
+        vec![
+            cap([0.0, 0.0, 1.0, 0.5]),
+            cap([1.0, 0.0, 2.0, 0.5]),
+            cap([0.0, 0.5, 1.0, 1.0]),
+            cap([1.0, 0.5, 2.0, 1.0]),
+            pic([3.0, 0.0, 4.0, 2.0]),
+            cap([0.0, 1.5, 1.0, 2.0]),
+        ]
+    }
+
+    /// 部品の真ん中の点
+    fn center(objects: &[Object], i: usize) -> Pt {
+        let n = objects[i].normalized();
+        ((n[0] + n[2]) / 2.0, (n[1] + n[3]) / 2.0)
+    }
+
+    #[test]
+    fn shift_click_selects_the_parts_inside_the_span_from_the_anchor() {
+        let frame = card_frame(&Template::default());
+        // (名前, クリック列 (部品の番号, 修飾キー), 最後の選択)
+        type Case<'a> = (&'a str, Vec<(usize, Mods)>, &'a [usize]);
+        let cases: Vec<Case> = vec![
+            (
+                "起点と押した部品を対角とする矩形の中の部品",
+                vec![(0, NO_MODS), (3, SHIFT)],
+                &[0, 1, 2, 3],
+            ),
+            ("同じ行（上段）", vec![(0, NO_MODS), (1, SHIFT)], &[0, 1]),
+            ("同じ列（左）", vec![(0, NO_MODS), (2, SHIFT)], &[0, 2]),
+            (
+                "逆向きにも伸ばせる",
+                vec![(3, NO_MODS), (0, SHIFT)],
+                &[0, 1, 2, 3],
+            ),
+            (
+                "矩形で囲まれる 4 つだけ（離れた写真枠は含めない）",
+                vec![(1, NO_MODS), (2, SHIFT)],
+                &[0, 1, 2, 3],
+            ),
+            (
+                "離れた部品までは、間の部品もまとめて",
+                vec![(0, NO_MODS), (5, SHIFT)],
+                &[0, 2, 5],
+            ),
+            (
+                "起点は動かない（もう一度 Shift で、範囲だけ変わる）",
+                vec![(0, NO_MODS), (3, SHIFT), (1, SHIFT)],
+                &[0, 1],
+            ),
+            (
+                "Ctrl で押した部品が起点になる",
+                vec![(0, NO_MODS), (5, CTRL), (2, SHIFT)],
+                &[2, 5],
+            ),
+            (
+                "Ctrl+Shift は、範囲を選択に加える",
+                vec![(0, NO_MODS), (5, CTRL), (2, CTRL_SHIFT)],
+                &[0, 2, 5],
+            ),
+            (
+                "起点がないときの Shift は、ふつうのクリック",
+                vec![(3, SHIFT)],
+                &[3],
+            ),
+        ];
+        for (name, clicks, want) in cases {
+            let objects = table_and_picture();
+            let mut doc = doc_of(objects.clone());
+            let mut tool = Tool::Select;
+            for (i, mods) in clicks {
+                click(
+                    &mut doc,
+                    &mut tool,
+                    center(&objects, i),
+                    &env_with(&frame, mods),
+                );
+            }
+            assert_eq!(doc.selection, want.iter().copied().collect(), "{name}");
         }
     }
 

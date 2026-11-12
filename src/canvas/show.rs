@@ -75,6 +75,7 @@ pub fn show(
     let ppi = xf.ppi as f64;
     let shift = ui.input(|i| i.modifiers.shift);
     let alt = ui.input(|i| i.modifiers.alt);
+    let toggle = ui.input(|i| i.modifiers.command);
     let space = ui.input(|i| i.key_down(egui::Key::Space));
     let single_sel: Option<usize> = match doc.selected_editable().as_slice() {
         [i] => Some(*i),
@@ -82,7 +83,7 @@ pub fn show(
     };
     let env = Env {
         frame: &frame,
-        mods: Mods { shift, alt },
+        mods: Mods { shift, alt, toggle },
         snap: SnapCfg {
             grid: view.grid_mm as f64 / MM_PER_INCH,
             grid_on: view.snap_grid,

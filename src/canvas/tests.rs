@@ -371,24 +371,27 @@ fn click_selection() {
     let a = (1.5, 1.25);
     let b = (3.5, 1.25);
     let empty = (1.5, 3.0);
-    // (クリックの並び（位置, Shift）, 期待する選択)
-    type Clicks = Vec<((f64, f64), bool)>;
+    let (none, shift, ctrl) = (Modifiers::NONE, Modifiers::SHIFT, Modifiers::COMMAND);
+    // (クリックの並び（位置, 修飾キー）, 期待する選択)
+    type Clicks = Vec<((f64, f64), Modifiers)>;
     let cases: Vec<(Clicks, Vec<usize>)> = vec![
-        (vec![(a, false)], vec![0]),
-        (vec![(a, false), (b, false)], vec![1]),
-        (vec![(a, false), (b, true)], vec![0, 1]),
-        (vec![(a, false), (a, true)], vec![]),
-        (vec![(a, false), (empty, false)], vec![]),
-        (vec![(a, false), (empty, true)], vec![0]),
+        (vec![(a, none)], vec![0]),
+        (vec![(a, none), (b, none)], vec![1]),
+        // Ctrl+クリックは、個別に選択へ加える・外す
+        (vec![(a, none), (b, ctrl)], vec![0, 1]),
+        (vec![(a, none), (a, ctrl)], vec![]),
+        // Shift+クリックは、起点の部品から、押した部品を含む矩形の中の部品までを選ぶ
+        (vec![(a, none), (b, shift)], vec![0, 1]),
+        (vec![(a, none), (a, shift)], vec![0]),
+        // 何も無い所: 修飾なしは外す。Shift・Ctrl は選択を保つ
+        (vec![(a, none), (empty, none)], vec![]),
+        (vec![(a, none), (empty, shift)], vec![0]),
+        (vec![(a, none), (empty, ctrl)], vec![0]),
     ];
     for (clicks, expected) in cases {
         let mut rig = Rig::new(two_captions_and_picture());
-        for ((x, y), shift) in &clicks {
-            rig.h.hold(if *shift {
-                Modifiers::SHIFT
-            } else {
-                Modifiers::NONE
-            });
+        for ((x, y), mods) in &clicks {
+            rig.h.hold(*mods);
             let p = rig.at(*x, *y);
             rig.click(p);
             rig.h.wait(1.0);

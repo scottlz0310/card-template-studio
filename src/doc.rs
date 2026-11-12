@@ -277,41 +277,56 @@ impl Document {
         self.selection = (0..self.template.objects.len()).collect();
     }
 
-    /// 一覧・画面の共通の、クリックによる選択。`order` は範囲の数え方（一覧に出ている並び）。
-    /// - 修飾なし: その部品だけを選び、起点にする。
-    /// - Ctrl: その部品を選択に加える／外し、起点にする。
-    /// - Shift: 起点からその部品までの範囲を選ぶ（起点は動かさない）。Ctrl+Shift は、範囲を選択に加える。
-    ///
-    /// 起点がない・選択から外れている・`order` にないときの Shift は、Shift なしと同じに扱う
+    /// 一覧の、クリックによる選択。`order` は範囲の数え方（一覧に出ている並び）。動きは `click_select_by` と同じ
     pub fn click_select(&mut self, i: usize, mods: ClickMods, order: &[usize]) {
         let Some(at) = order.iter().position(|&x| x == i) else {
             return;
         };
-        let anchor_at = self
+        self.click_select_by(i, mods, |anchor| {
+            let from = order.iter().position(|&x| x == anchor)?;
+            Some(order[from.min(at)..=from.max(at)].to_vec())
+        });
+    }
+
+    /// 一覧・画面の共通の、クリックによる選択。`span(起点)` は、起点から `i` までの範囲の部品を返す
+    /// （一覧は並びで、画面は矩形で数える）。起点を範囲に使えないときは `None`。
+    /// - 修飾なし: その部品だけを選び、起点にする。
+    /// - Ctrl: その部品を選択に加える／外し、起点にする。
+    /// - Shift: 起点から `i` までの範囲を選ぶ（起点は動かさない）。Ctrl+Shift は、範囲を選択に加える。
+    ///
+    /// 起点がない・選択から外れている・範囲に使えないときの Shift は、Shift なしと同じに扱う
+    pub fn click_select_by(
+        &mut self,
+        i: usize,
+        mods: ClickMods,
+        span: impl FnOnce(usize) -> Option<Vec<usize>>,
+    ) {
+        let range = self
             .anchor
             .filter(|a| self.selection.contains(a))
-            .and_then(|a| order.iter().position(|&x| x == a));
-        match (mods.shift, anchor_at) {
-            (true, Some(from)) => {
-                let (lo, hi) = (from.min(at), from.max(at));
-                let range = order[lo..=hi].iter().copied();
-                if mods.toggle {
-                    self.selection.extend(range);
-                } else {
-                    self.selection = range.collect();
-                }
+            .and_then(span)
+            .filter(|_| mods.shift);
+        if let Some(range) = range {
+            if mods.toggle {
+                self.selection.extend(range);
+            } else {
+                self.selection = range.into_iter().collect();
             }
-            _ => {
-                if mods.toggle {
-                    if !self.selection.remove(&i) {
-                        self.selection.insert(i);
-                    }
-                } else {
-                    self.selection = [i].into();
-                }
-                self.anchor = Some(i);
-            }
+            return;
         }
+        if mods.toggle {
+            if !self.selection.remove(&i) {
+                self.selection.insert(i);
+            }
+        } else {
+            self.selection = [i].into();
+        }
+        self.anchor = Some(i);
+    }
+
+    /// 範囲選択の起点を、`i` にする（ドラッグで部品を選び直したときなど）
+    pub fn set_anchor(&mut self, i: usize) {
+        self.anchor = Some(i);
     }
 
     // ----- 追加・削除 -----
