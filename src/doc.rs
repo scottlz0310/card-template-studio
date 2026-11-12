@@ -689,7 +689,8 @@ impl Document {
     /// - 上端は動かさず、下端を変える。高くなった分、重なる下の部品は、#56 と同じ規則で連鎖して押し下げる。
     ///   縮めたときは、下の部品を動かさない（隙間ができる）。縦書きの文字項目は、高さを触らない。
     /// - 複数の行を同時に変えるときは、上の行から順に、作業用の写しの上で変える（上の行が押し下げた下の行を、続けて変える）。
-    /// - 変えた結果がカードの下端を超えるとき（超える量が、変える前より増えるとき）は、理由を `Err` で返す。
+    /// - 変えた結果、部品がカードの下端を超えるとき（その部品が、変える前より下へはみ出すとき。すでにはみ出していた
+    ///   部品を縮めるのは受け付けるが、別の部品が新たにはみ出すのは断る）は、理由を `Err` で返す。
     pub fn plan_font_size(&self, targets: &[usize], new_size: u16) -> Result<FontSizePlan, String> {
         let mut sim = Document::new(self.template.clone(), "", None);
         for entry in self.layer_entries() {
@@ -704,7 +705,10 @@ impl Document {
                 .copied()
                 .filter(|&m| matches!(&objs[m].body, Body::Caption(c) if c.fmt[tpl::fmt_off::HORIZONTAL] != 0))
                 .collect();
-            let mut need_pt = 0.0_f64;
+            // 行数は、セルごとではなく行で 1 つ見積もる（行の高さは、行でいちばん大きい文字にそろえてあるので、
+            // 小さい文字のセルだけを見ると、そろえた余白を複数行と見誤り、拡大・縮小のたびに高さが累積する）。
+            // 行の現在の高さを、変更前のいちばん大きい文字で割って、行数とする
+            let (mut old_max, mut new_max, mut row_h_pt) = (1.0_f64, 1.0_f64, 0.0_f64);
             for &m in &members {
                 let Body::Caption(c) = &objs[m].body else {
                     continue;
@@ -716,11 +720,14 @@ impl Document {
                     old
                 };
                 let n = objs[m].normalized();
-                let lines = (((n[3] - n[1]) * 72.0 - CAPTION_PAD_H_PT) / (old * LINE_HEIGHT_RATIO))
-                    .round()
-                    .max(1.0);
-                need_pt = need_pt.max(lines * new * LINE_HEIGHT_RATIO + CAPTION_PAD_H_PT);
+                old_max = old_max.max(old);
+                new_max = new_max.max(new);
+                row_h_pt = row_h_pt.max((n[3] - n[1]) * 72.0);
             }
+            let lines = ((row_h_pt - CAPTION_PAD_H_PT) / (old_max * LINE_HEIGHT_RATIO))
+                .round()
+                .max(1.0);
+            let need_pt = lines * new_max * LINE_HEIGHT_RATIO + CAPTION_PAD_H_PT;
             let (mut below, mut new_rects) = (f64::MAX, Vec::new());
             for &m in &members {
                 let n = objs[m].normalized();
@@ -739,8 +746,10 @@ impl Document {
             }
         }
         // 変わった部品（高さを変えた文字項目と、押し下げた部品）
+        let card_bottom = crate::layout::a4_division(&self.template.header).1;
         let mut rects = Vec::new();
-        let (mut lowest, mut old_lowest) = (f64::MIN, f64::MIN);
+        // 部品ごとに、カードの下端（すでにはみ出していた部品は、その位置）を超えた量。いちばん大きいものを見る
+        let mut excess = 0.0_f64;
         for (i, (before, after)) in self
             .template
             .objects
@@ -750,16 +759,14 @@ impl Document {
         {
             if before.rect != after.rect {
                 rects.push((i, after.rect));
-                lowest = lowest.max(after.normalized()[3]);
-                old_lowest = old_lowest.max(before.normalized()[3]);
+                let limit = card_bottom.max(before.normalized()[3]);
+                excess = excess.max(after.normalized()[3] - limit);
             }
         }
-        let card_bottom = crate::layout::a4_division(&self.template.header).1;
-        let limit = card_bottom.max(old_lowest);
-        if !rects.is_empty() && lowest > limit + ROW_BELOW_EPS {
+        if excess > ROW_BELOW_EPS {
             return Err(format!(
                 "カードの下端に収まらないため、文字の大きさを変えられません（あと {:.1} mm 足りません）。先に下の部品を減らすか、行の数や高さを小さくしてください",
-                (lowest - limit) * tpl::MM_PER_INCH
+                excess * tpl::MM_PER_INCH
             ));
         }
         Ok(FontSizePlan { rects })
@@ -1937,6 +1944,56 @@ mod tests {
                 assert!(why.contains("カードの下端に収まらない"), "{name}: {why}");
             }
         }
+    }
+
+    /// 文字の大きさを変える（計画を立て、大きさを書き、計画を当てる。画面の文字サイズの欄と同じ順）
+    fn change_size(d: &mut Document, targets: &[usize], pt: u16) -> Result<(), String> {
+        let plan = d.plan_font_size(targets, pt)?;
+        for &t in targets {
+            set_size(d, t, pt);
+        }
+        d.apply_font_size_plan(plan);
+        Ok(())
+    }
+
+    #[test]
+    fn font_size_plan_does_not_accumulate_height_over_repeated_changes() {
+        // 項目名だけを、24 → 12 → 24 → 12 と変える。値は 12pt のまま。そろえた余白を複数行と見誤らない（#70 の指摘）
+        let mut d = three_rows_with_notes();
+        let (h12, h24) = (one_line_height(12.0), one_line_height(24.0));
+        for (pt, want) in [(24, h24), (12, h12), (24, h24), (12, h12)] {
+            change_size(&mut d, &[0], pt).expect("受け付ける");
+            for i in [0, 1] {
+                let n = d.template.objects[i].normalized();
+                assert!(
+                    ((n[3] - n[1]) - want).abs() < 1e-9,
+                    "{pt}pt, 部品 {i}: 高さ {} != {want}",
+                    n[3] - n[1]
+                );
+            }
+        }
+        // 2 行目は、1 回目の拡大で押し下げられた位置のまま（縮めても戻らず、再拡大でさらに押されない）
+        let second = d.template.objects[2].normalized();
+        assert!(
+            (second[1] - h24).abs() < 1e-9,
+            "2 行目の上端: {}",
+            second[1]
+        );
+    }
+
+    #[test]
+    fn font_size_plan_refuses_a_new_overflow_even_if_another_part_was_already_outside() {
+        let card_h = crate::layout::a4_division(&Template::default().header).1;
+        let mut d = Document::new(Template::default(), "t", None);
+        // A: カードの中の最下段（12pt）。B: すでにカードの外（48pt。1 行ぶん）
+        d.add_caption("A", "", false, [0.0, card_h - 0.225, 1.0, card_h]);
+        d.add_caption("B", "", false, [2.0, card_h + 1.0, 3.0, card_h + 1.775]);
+        set_size(&mut d, 1, 48);
+        // 両方を 24pt に: B は縮むが、A がカードの下端を超えるので断る（別の部品のはみ出しの許可で通さない）
+        let both = d.plan_font_size(&[0, 1], 24);
+        assert!(both.is_err(), "{both:?}");
+        // B だけを縮めるのは、受け付ける
+        assert!(d.plan_font_size(&[1], 24).is_ok());
     }
 
     #[test]
