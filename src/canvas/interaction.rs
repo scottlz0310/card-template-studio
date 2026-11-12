@@ -357,7 +357,7 @@ pub(super) fn click(doc: &mut Document, tool: &mut Tool, p: Pt, env: &Env) {
         };
         // Shift+クリックは、起点の部品と押した部品を含む矩形に、すっかり含まれる部品を選ぶ（矩形選択と同じ規則）
         let rects = normalized_rects(doc);
-        doc.click_select_by(i, mods, |anchor| {
+        doc.click_select_by(&[i], mods, |anchor| {
             let span = bounds_of([*rects.get(anchor)?, *rects.get(i)?].into_iter());
             Some(parts_inside(&rects, span))
         });

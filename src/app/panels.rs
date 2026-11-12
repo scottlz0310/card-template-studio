@@ -52,43 +52,124 @@ impl StudioApp {
         ui.separator();
         egui::ScrollArea::vertical()
             .id_salt("layers")
-            .show(ui, |ui| {
-                let mut clicked: Option<(usize, ClickMods)> = None;
-                // 一覧に出ている並び（範囲選択の数え方）
-                let mut order: Vec<usize> = Vec::new();
-                let mut picture_no = 0;
-                for (i, o) in self.doc.template.objects.iter().enumerate().rev() {
-                    let _ = picture_no;
-                    order.push(i);
-                    let text = match &o.body {
-                        crate::tpl::Body::Caption(c) => {
-                            if c.is_value_cell() {
-                                format!("〈{}〉", c.field.to_string_lossy())
-                            } else {
-                                c.text.to_string_lossy().replace("\r\n", " ")
-                            }
-                        }
-                        crate::tpl::Body::Picture(_) => {
-                            picture_no += 1;
-                            String::new()
-                        }
-                        _ => String::new(),
-                    };
+            .show(ui, |ui| self.layer_list(ui));
+    }
+
+    /// 部品の一覧。位置順（上→下、左→右）で、同じ行に並ぶ文字項目は「項目名 ｜ 値」の 1 行にまとめる。
+    /// 項目名・値のどちらかをクリックするとその部品だけを、行番号と「｜」をクリックすると行全体を選ぶ
+    fn layer_list(&mut self, ui: &mut egui::Ui) {
+        let entries = self.doc.layer_entries();
+        let groups: Vec<Vec<usize>> = entries.iter().map(LayerEntry::members).collect();
+        let mods = ui.input(|i| ClickMods {
+            shift: i.modifiers.shift,
+            toggle: i.modifiers.command,
+        });
+        let mut clicked: Option<Vec<usize>> = None;
+        let mut row_no = 0;
+        // 行の幅（内容に引きずられて欄が広がらないよう、余白を見込んで、先に 1 回だけ取る）
+        let width = (ui.available_width() - 10.0).max(120.0);
+        for e in &entries {
+            match e {
+                LayerEntry::Part(i) => {
+                    let o = &self.doc.template.objects[*i];
                     let lock = if o.is_passthrough() { "🔒 " } else { "" };
-                    let sel = self.doc.selection.contains(&i);
-                    let r = ui.selectable_label(sel, format!("{lock}{}  {}", o.kind_label(), text));
-                    if r.clicked() {
-                        let mods = ui.input(|i| ClickMods {
-                            shift: i.modifiers.shift,
-                            toggle: i.modifiers.command,
-                        });
-                        clicked = Some((i, mods));
+                    let sel = self.doc.selection.contains(i);
+                    let text = part_text(o);
+                    if ui
+                        .selectable_label(sel, format!("{lock}{}  {text}", o.kind_label()))
+                        .clicked()
+                    {
+                        clicked = Some(vec![*i]);
                     }
                 }
-                if let Some((i, mods)) = clicked {
-                    self.doc.click_select(i, mods, &order);
+                LayerEntry::Row(members) => {
+                    row_no += 1;
+                    if let Some(c) = self.layer_row(ui, row_no, members, width) {
+                        clicked = Some(c);
+                    }
                 }
+            }
+        }
+        if let Some(members) = clicked {
+            self.doc.click_select_groups(&members, mods, &groups);
+        }
+    }
+
+    /// 一覧の 1 行（行番号｜項目名｜値…）。クリックされた部品（行全体なら、行の部品すべて）を返す
+    fn layer_row(
+        &self,
+        ui: &mut egui::Ui,
+        no: usize,
+        members: &[usize],
+        width: f32,
+    ) -> Option<Vec<usize>> {
+        // ボタンの最小幅（文字＋内側の余白）より大きくして、行が指定の幅からはみ出し、欄が広がるのを防ぐ
+        const NO_W: f32 = 20.0;
+        const SEP_W: f32 = 22.0;
+        const SPACING: f32 = 2.0;
+        let sel = &self.doc.selection;
+        let all = members.iter().all(|m| sel.contains(m));
+        let texts: Vec<String> = members
+            .iter()
+            .map(|&m| part_text(&self.doc.template.objects[m]))
+            .collect();
+        // 文字数に比例して、セルの幅を分ける（短い項目名に、長い項目値より広い幅を与えない）
+        let weights: Vec<f32> = texts
+            .iter()
+            .map(|t| t.chars().count() as f32 + 2.0)
+            .collect();
+        let total_w: f32 = weights.iter().sum();
+        let cells = members.len() as f32;
+        let items = 1.0 + cells + (cells - 1.0);
+        let room =
+            (width - NO_W - (cells - 1.0) * SEP_W - SPACING * (items - 1.0)).max(40.0 * cells);
+        let h = ui.spacing().interact_size.y;
+        let mut clicked = None;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = SPACING;
+            ui.spacing_mut().button_padding = egui::vec2(2.0, 1.0);
+            let r = ui
+                .add_sized([NO_W, h], egui::Button::selectable(all, format!("{no}")))
+                .on_hover_text("この行全体を選ぶ");
+            r.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{no} 行目の全体"))
             });
+            if r.clicked() {
+                clicked = Some(members.to_vec());
+            }
+            for (k, &m) in members.iter().enumerate() {
+                if k > 0 {
+                    let r = ui
+                        .add_sized([SEP_W, h], egui::Button::selectable(all, "｜"))
+                        .on_hover_text("この行全体を選ぶ");
+                    r.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::Role::Button,
+                            true,
+                            format!("{no} 行目の全体（区切り）"),
+                        )
+                    });
+                    if r.clicked() {
+                        clicked = Some(members.to_vec());
+                    }
+                }
+                let text = texts[k].clone();
+                let r = ui
+                    .add_sized(
+                        [room * weights[k] / total_w, h],
+                        egui::Button::selectable(
+                            sel.contains(&m),
+                            (text.clone(), egui::Atom::grow()),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(text);
+                if r.clicked() {
+                    clicked = Some(vec![m]);
+                }
+            }
+        });
+        clicked
     }
 
     pub(super) fn right_panel(&mut self, ui: &mut egui::Ui) {
@@ -138,5 +219,22 @@ impl StudioApp {
                 .unwrap_or_else(|| self.tool.hint().to_string());
             ui.label(RichText::new(msg).weak());
         });
+    }
+}
+
+/// 部品の一覧に出す文字（項目値は `〈項目名〉`、項目名・文字はその文字）
+fn part_text(o: &crate::tpl::Object) -> String {
+    match &o.body {
+        crate::tpl::Body::Caption(c) => {
+            if c.is_value_cell() {
+                format!("〈{}〉", c.field.to_string_lossy())
+            } else {
+                c.text.to_string_lossy().replace(
+                    "
+", " ",
+                )
+            }
+        }
+        _ => String::new(),
     }
 }

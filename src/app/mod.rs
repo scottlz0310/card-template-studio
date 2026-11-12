@@ -3,7 +3,7 @@
 use crate::canvas::{
     self, ACCENT, CanvasAction, CanvasState, GRID_MM_RANGE, TableSpec, Tool, View,
 };
-use crate::doc::{self, Align, ClickMods, Document, Library, validate_name};
+use crate::doc::{self, Align, ClickMods, Document, LayerEntry, Library, validate_name};
 use crate::layout::layout_label;
 use crate::layout_picker;
 use crate::props;
@@ -292,7 +292,7 @@ impl eframe::App for StudioApp {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         egui::Panel::left("left")
             .resizable(true)
-            .default_size(240.0)
+            .default_size(280.0)
             .size_range(180.0..=420.0)
             .show(ui, |ui| self.left_panel(ui));
         egui::Panel::right("right")
