@@ -564,6 +564,7 @@ fn custom_settings() -> Settings {
             snap_objects: false,
             show_used: false,
             sample_values: true,
+            theme: crate::theme::ThemeChoice::Dark,
         },
         colors: crate::settings::Colors {
             recent: vec![[0xff, 0x00, 0x00], [0x44, 0x72, 0xc4]],
@@ -581,6 +582,75 @@ fn saved_settings_are_restored_at_startup_and_not_written_back() {
     assert_eq!(a.settings.folders, custom_settings().folders);
     assert!(a.modal.is_none() && a.toast.is_none());
     assert!(saves(&store).is_empty(), "読んだだけでは書かない");
+}
+
+#[test]
+fn saved_theme_is_applied_to_the_context_at_startup() {
+    use crate::theme::ThemeChoice;
+    // テスト用のハーネスは、アプリを作ったあとに、自分のテーマを設定するので、素の Context に対して確かめる
+    for choice in ThemeChoice::ALL {
+        let store = MemoryStore::default();
+        store.0.borrow_mut().stored.view.theme = choice;
+        let ctx = egui::Context::default();
+        let app = StudioApp::with_dialogs(
+            &ctx,
+            None,
+            None,
+            Box::new(Rc::new(FakeDialogs::default())),
+            Box::new(store.clone()),
+        );
+        assert_eq!(app.view.theme, choice, "{choice:?}");
+        assert_eq!(
+            ctx.options(|o| o.theme_preference),
+            choice.preference(),
+            "{choice:?}"
+        );
+        assert!(saves(&store).is_empty(), "読んだだけでは書かない");
+    }
+    // 設定が無い起動は、システムに合わせる
+    let ctx = egui::Context::default();
+    let app = StudioApp::with_dialogs(
+        &ctx,
+        None,
+        None,
+        Box::new(Rc::new(FakeDialogs::default())),
+        Box::new(MemoryStore::default()),
+    );
+    assert_eq!(app.view.theme, ThemeChoice::System);
+    assert_eq!(
+        ctx.options(|o| o.theme_preference),
+        ThemeChoice::System.preference()
+    );
+}
+
+#[test]
+fn theme_chosen_from_the_view_menu_is_applied_and_saved() {
+    use crate::theme::ThemeChoice;
+    let store = MemoryStore::default();
+    store.0.borrow_mut().stored = custom_settings(); // テーマは、ダーク
+    let (mut h, _) = harness_with_store(None, store.clone());
+    assert_eq!(app(&mut h).view.theme, ThemeChoice::Dark);
+    // 「表示」メニューの 3 択で、ライトに変える → 画面に反映され、設定に書き出される
+    open_menu(&mut h, "表示", ThemeChoice::Light.label());
+    assert_eq!(app(&mut h).view.theme, ThemeChoice::Light);
+    assert_eq!(h.ctx.theme(), egui::Theme::Light);
+    let saved = saves(&store);
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].view.theme, ThemeChoice::Light);
+    // ダークに戻す
+    open_menu(&mut h, "表示", ThemeChoice::Dark.label());
+    assert_eq!(h.ctx.theme(), egui::Theme::Dark);
+    assert_eq!(saves(&store).last().unwrap().view.theme, ThemeChoice::Dark);
+    // システムに合わせる → egui の設定が System になる
+    open_menu(&mut h, "表示", ThemeChoice::System.label());
+    assert_eq!(
+        h.ctx.options(|o| o.theme_preference),
+        ThemeChoice::System.preference()
+    );
+    assert_eq!(
+        saves(&store).last().unwrap().view.theme,
+        ThemeChoice::System
+    );
 }
 
 #[test]

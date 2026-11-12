@@ -10,6 +10,7 @@ mod props;
 mod settings;
 #[cfg(test)]
 mod test_support;
+mod theme;
 mod tpl;
 
 use std::path::PathBuf;

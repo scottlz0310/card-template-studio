@@ -34,7 +34,7 @@ impl StudioApp {
                     );
                     ui.radio_value(&mut starter, false, "白紙から始める");
                     if let Some(e) = &error {
-                        ui.colored_label(Color32::from_rgb(0xc0, 0x39, 0x2b), e);
+                        ui.colored_label(crate::theme::Colors::of_ui(ui).error, e);
                     }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -121,7 +121,7 @@ impl StudioApp {
                     ui.add(egui::TextEdit::singleline(&mut name).desired_width(320.0))
                         .labelled_by(name_label.id);
                     if let Some(e) = &error {
-                        ui.colored_label(Color32::from_rgb(0xc0, 0x39, 0x2b), e);
+                        ui.colored_label(crate::theme::Colors::of_ui(ui).error, e);
                     }
                     ui.horizontal(|ui| {
                         if ui.button("保存先を選ぶ…").clicked() {

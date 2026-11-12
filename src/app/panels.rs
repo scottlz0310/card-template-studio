@@ -5,7 +5,8 @@ use super::*;
 impl StudioApp {
     pub(super) fn left_panel(&mut self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
-        ui.label(RichText::new("テンプレート").strong().color(ACCENT));
+        let accent = crate::theme::Colors::of_ui(ui).accent_text;
+        ui.label(RichText::new("テンプレート").strong().color(accent));
         ui.separator();
         match self.library.clone() {
             None => {
@@ -48,7 +49,7 @@ impl StudioApp {
             }
         }
         ui.add_space(8.0);
-        ui.label(RichText::new("部品の一覧").strong().color(ACCENT));
+        ui.label(RichText::new("部品の一覧").strong().color(accent));
         ui.separator();
         egui::ScrollArea::vertical()
             .id_salt("layers")
@@ -178,7 +179,8 @@ impl StudioApp {
             props::show(ui, &mut self.doc, &mut self.canvas.focus_text);
             if !self.doc.selected_editable().is_empty() {
                 ui.add_space(8.0);
-                ui.label(RichText::new("配置").strong().color(ACCENT));
+                let accent = crate::theme::Colors::of_ui(ui).accent_text;
+                ui.label(RichText::new("配置").strong().color(accent));
                 ui.separator();
                 self.align_buttons(ui);
             }
