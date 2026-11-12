@@ -644,6 +644,19 @@ fn font_props(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
         effect_props(ui, &mut f);
     }
     if (face.clone(), fmt) != before {
+        // 文字の大きさが変わるときは、セルの高さを追従させる。カードの下端に収まらないときは、変更ごと取り消す
+        let size = fmt_off::SIZE..fmt_off::SIZE + 2;
+        let plan = if fmt[size.clone()] != before.1[size] {
+            match doc.plan_font_size(&captions, tpl::read_fmt_u16(&fmt, fmt_off::SIZE)) {
+                Ok(plan) => Some(plan),
+                Err(why) => {
+                    doc.notice = Some(why);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         doc.checkpoint(Some(&key));
         // 変わった項目だけを全員に当てる（ほかの値・未解明のバイトはそれぞれのまま）
         let changed: Vec<(usize, usize)> = EDITABLE_FIELDS
@@ -660,6 +673,9 @@ fn font_props(ui: &mut egui::Ui, doc: &mut Document, idx: &[usize]) {
             if face_changed {
                 c.face = tpl::string_to_fixed(&face);
             }
+        }
+        if let Some(plan) = plan {
+            doc.apply_font_size_plan(plan);
         }
     }
 }
@@ -1397,6 +1413,70 @@ mod tests {
         h.run();
         assert_eq!(caption_body(&h, 0).text.to_string_lossy(), "あい");
         assert!(h.query_by_label_contains("本体で扱えない文字").is_none());
+    }
+
+    /// 文字サイズの欄に、値を入れる（クリックして、書き換えて、Enter）
+    fn set_font_size(h: &mut Harness<'_, State>, pt: u16) {
+        let now = tpl::read_fmt_u16(&fmt_of(h, 0), fmt_off::SIZE);
+        let spin = h
+            .get_all_by_role(egui::accesskit::Role::SpinButton)
+            .find(|n| n.value().is_some_and(|v| v.contains(&format!("{now} pt"))))
+            .expect("文字サイズの欄");
+        spin.click();
+        h.run();
+        h.get_by_role(egui::accesskit::Role::TextInput)
+            .type_text(&pt.to_string());
+        h.key_press(egui::Key::Enter);
+        h.run();
+    }
+
+    #[test]
+    fn changing_the_font_size_in_the_panel_makes_the_cell_height_follow() {
+        // 項目名（0）と値（1）の行（高さ 0.3 in）。その下に、直下の部品（2）
+        let mut a = caption("名", "", false, 0.1);
+        a.rect = [0.1, 0.5, 1.1, 0.8];
+        let mut b = caption("", "工種", true, 1.1);
+        b.rect = [1.1, 0.5, 2.1, 0.8];
+        let mut c = caption("下", "", false, 0.1);
+        c.rect = [0.1, 0.8, 2.1, 1.0];
+        let mut h = harness(vec![a, b, c], &[0]);
+        set_font_size(&mut h, 24);
+        let need = (24.0 * 1.1 + 3.0) / 72.0;
+        let rect =
+            |h: &Harness<'_, State>, i: usize| h.state().doc.template.objects[i].normalized();
+        assert_eq!(tpl::read_fmt_u16(&fmt_of(&h, 0), fmt_off::SIZE), 24);
+        assert!((rect(&h, 0)[3] - (0.5 + need)).abs() < 1e-9, "項目名の高さ");
+        assert!(
+            (rect(&h, 1)[3] - (0.5 + need)).abs() < 1e-9,
+            "同じ行の値も同じ高さ"
+        );
+        assert!(
+            (rect(&h, 2)[1] - (0.5 + need)).abs() < 1e-9,
+            "下の部品が押し下げられる"
+        );
+        // 元に戻す 1 回で、大きさも高さも押し下げも戻る
+        h.state_mut().doc.undo();
+        assert_eq!(tpl::read_fmt_u16(&fmt_of(&h, 0), fmt_off::SIZE), 12);
+        assert_eq!(rect(&h, 0), [0.1, 0.5, 1.1, 0.8]);
+        assert_eq!(rect(&h, 2), [0.1, 0.8, 2.1, 1.0]);
+    }
+
+    #[test]
+    fn changing_the_font_size_is_refused_when_the_card_bottom_would_be_exceeded() {
+        let card_h = crate::layout::a4_division(&Template::default().header).1;
+        let mut a = caption("名", "", false, 0.1);
+        a.rect = [0.1, card_h - 0.3, 1.1, card_h];
+        let mut h = harness(vec![a], &[0]);
+        set_font_size(&mut h, 24);
+        // 大きさも高さも変えず、理由を伝え、「元に戻す」の履歴も積まない
+        assert_eq!(tpl::read_fmt_u16(&fmt_of(&h, 0), fmt_off::SIZE), 12);
+        assert_eq!(
+            h.state().doc.template.objects[0].rect,
+            [0.1, card_h - 0.3, 1.1, card_h]
+        );
+        let why = h.state().doc.notice.clone().expect("理由");
+        assert!(why.contains("カードの下端に収まらない"), "{why}");
+        assert!(!h.state().doc.can_undo());
     }
 
     #[test]
