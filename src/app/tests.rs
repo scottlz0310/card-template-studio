@@ -605,52 +605,91 @@ fn open_menu(h: &mut H, menu: &str, item: &str) {
 }
 
 #[test]
-fn part_list_shift_click_selects_a_range_and_ctrl_click_toggles() {
-    // 見本の部品: 0 = 写真枠、以降は (項目名, 項目値) の組が 1〜2、3〜4、5〜6、… の順（一覧は大きい番号から並ぶ）
-    // (名前, クリック列 (一覧の文字, 修飾), 最後の選択)
+fn part_list_shows_rows_and_selects_by_click_target() {
+    // 見本の部品: 0 = 写真枠、以降は (項目名, 項目値) の組が 1〜2、3〜4、5〜6、… の順。一覧は位置順で、組は 1 行にまとまる
+    // クリック先は、一覧の文字（項目値は `〈…〉`、項目名はその文字）か、`行N`（行番号。行全体）
+    // (名前, クリック列 (クリック先, 修飾), 最後の選択)
     type Case = (&'static str, Vec<(&'static str, Modifiers)>, Vec<usize>);
+    let none = Modifiers::NONE;
     let cases: Vec<Case> = vec![
         (
-            "クリックは、その部品だけ",
-            vec![("〈工種〉", Modifiers::NONE)],
+            "値の側のクリックは、値だけ",
+            vec![("〈工種〉", none)],
             vec![2],
         ),
         (
-            "Shift+クリックは、起点から範囲を選ぶ",
-            vec![
-                ("〈工種〉", Modifiers::NONE),
-                ("〈写真タイトル〉", Modifiers::SHIFT),
-            ],
-            vec![2, 3, 4, 5, 6],
+            "項目名の側のクリックは、項目名だけ",
+            vec![("工種", none)],
+            vec![1],
+        ),
+        (
+            "行番号のクリックは、行全体（項目名と値）",
+            vec![("行2", none)],
+            vec![3, 4],
+        ),
+        (
+            "Shift+クリックは、起点の行から押した行までを、行単位で選ぶ",
+            vec![("〈工種〉", none), ("〈写真タイトル〉", Modifiers::SHIFT)],
+            vec![1, 2, 3, 4, 5, 6],
+        ),
+        (
+            "行番号から行番号への Shift+クリックも、行単位",
+            vec![("行1", none), ("行3", Modifiers::SHIFT)],
+            vec![1, 2, 3, 4, 5, 6],
         ),
         (
             "Ctrl+クリックは、その部品だけを足す（範囲にならない）",
-            vec![
-                ("〈工種〉", Modifiers::NONE),
-                ("〈写真タイトル〉", Modifiers::COMMAND),
-            ],
+            vec![("〈工種〉", none), ("〈写真タイトル〉", Modifiers::COMMAND)],
             vec![2, 6],
         ),
         (
-            "Ctrl+クリックのあとの Shift+クリックは、Ctrl で押した部品が起点",
+            "Ctrl+行番号は、行全体を選択に足す",
+            vec![("〈工種〉", none), ("行3", Modifiers::COMMAND)],
+            vec![2, 5, 6],
+        ),
+        (
+            "行全体が選ばれた行の Ctrl+行番号は、その行を外す",
+            vec![("行3", none), ("行3", Modifiers::COMMAND)],
+            vec![],
+        ),
+        (
+            "Ctrl+クリックのあとの Shift+クリックは、Ctrl で押した部品の行が起点",
             vec![
-                ("〈工種〉", Modifiers::NONE),
+                ("〈工種〉", none),
                 ("〈撮影年月日〉", Modifiers::COMMAND),
                 ("〈撮影箇所〉", Modifiers::SHIFT),
             ],
-            vec![8, 9, 10],
+            vec![7, 8, 9, 10],
         ),
     ];
     for (name, clicks, want) in cases {
         let mut h = harness();
         app(&mut h).doc.selection.clear();
-        for (label, mods) in clicks {
-            h.get_by_label_contains(label).click_modifiers(mods);
+        for (target, mods) in clicks {
+            if let Some(n) = target.strip_prefix("行") {
+                h.get_by_label(&format!("{n} 行目の全体"))
+                    .click_modifiers(mods);
+            } else {
+                h.get_by_label(target).click_modifiers(mods);
+            }
             h.run();
         }
         let got: Vec<usize> = app(&mut h).doc.selection.iter().copied().collect();
         assert_eq!(got, want, "{name}");
     }
+}
+
+#[test]
+fn part_list_is_in_position_order_with_rows_grouped() {
+    let mut h = harness();
+    let entries = app(&mut h).doc.layer_entries();
+    // 写真枠が先頭、続いて 5 つの行（項目名・項目値）が上から並ぶ
+    assert_eq!(entries[0], crate::doc::LayerEntry::Part(0));
+    let rows: Vec<Vec<usize>> = entries[1..].iter().map(|e| e.members()).collect();
+    assert_eq!(
+        rows,
+        [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]].map(|r| r.to_vec())
+    );
 }
 
 #[test]
@@ -835,25 +874,25 @@ fn layer_list_selects_with_modifiers() {
     labels.remove(0).click();
     h.run();
     assert_eq!(selected_count(&mut h), 1);
-    // Shift+クリックは範囲選択: 起点（先頭の項目値）から 2 つ目の項目値まで、間の項目名を含めて 3 つ
+    // Shift+クリックは範囲選択: 起点（先頭の行の項目値）から 2 つ目の行の項目値まで、行単位で 4 つ（2 行ぶん）
     let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
     second.click_modifiers(Modifiers::SHIFT);
     h.run();
-    assert_eq!(selected_count(&mut h), 3);
+    assert_eq!(selected_count(&mut h), 4);
     // 同じ部品を Shift+クリックし直しても、起点は動かず、範囲は変わらない
     let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
     second.click_modifiers(Modifiers::SHIFT);
     h.run();
-    assert_eq!(selected_count(&mut h), 3);
+    assert_eq!(selected_count(&mut h), 4);
     // 個別に外す・戻すのは Ctrl+クリック
     let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
     second.click_modifiers(Modifiers::COMMAND);
     h.run();
-    assert_eq!(selected_count(&mut h), 2, "Ctrl+クリックで外れる");
+    assert_eq!(selected_count(&mut h), 3, "Ctrl+クリックで外れる");
     let second = h.get_all_by_label_contains("〈").nth(1).unwrap();
     second.click_modifiers(Modifiers::COMMAND);
     h.run();
-    assert_eq!(selected_count(&mut h), 3, "もう一度で戻る");
+    assert_eq!(selected_count(&mut h), 4, "もう一度で戻る");
 }
 
 #[test]

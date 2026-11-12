@@ -127,6 +127,23 @@ struct Snapshot {
     selection: BTreeSet<usize>,
 }
 
+/// 部品の一覧の 1 項目。`Row` は、同じ行に並ぶ文字項目（項目名・項目値など。左→右、2 つ以上）
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LayerEntry {
+    Part(usize),
+    Row(Vec<usize>),
+}
+
+impl LayerEntry {
+    /// 項目に含まれる部品の番号
+    pub fn members(&self) -> Vec<usize> {
+        match self {
+            Self::Part(i) => vec![*i],
+            Self::Row(r) => r.clone(),
+        }
+    }
+}
+
 /// クリックの修飾キー（`toggle` は Ctrl（Mac は Cmd））
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ClickMods {
@@ -277,30 +294,60 @@ impl Document {
         self.selection = (0..self.template.objects.len()).collect();
     }
 
-    /// 一覧の、クリックによる選択。`order` は範囲の数え方（一覧に出ている並び）。動きは `click_select_by` と同じ
-    pub fn click_select(&mut self, i: usize, mods: ClickMods, order: &[usize]) {
-        let Some(at) = order.iter().position(|&x| x == i) else {
-            return;
+    /// 部品の一覧に出す並び（位置順: 上→下、左→右）。同じ行に並ぶ文字項目（項目名・項目値）は、1 つの `Row` にまとめる
+    pub fn layer_entries(&self) -> Vec<LayerEntry> {
+        let objs = &self.template.objects;
+        let key = |i: usize| {
+            let n = objs[i].normalized();
+            // 上端は 0.001 in（0.025 mm）で丸めて、同じ行の少しのずれを同じとみなす
+            ((n[1] * 1000.0).round() as i64, n[0])
         };
-        self.click_select_by(i, mods, |anchor| {
-            let from = order.iter().position(|&x| x == anchor)?;
-            Some(order[from.min(at)..=from.max(at)].to_vec())
+        let mut order: Vec<usize> = (0..objs.len()).collect();
+        order.sort_by(|&p, &q| {
+            let (kp, kq) = (key(p), key(q));
+            kp.0.cmp(&kq.0).then(kp.1.total_cmp(&kq.1))
         });
+        let mut taken = vec![false; objs.len()];
+        let mut out = Vec::new();
+        for i in order {
+            if taken[i] {
+                continue;
+            }
+            if !matches!(objs[i].body, Body::Caption(_)) {
+                taken[i] = true;
+                out.push(LayerEntry::Part(i));
+                continue;
+            }
+            let mut row = self.row_of(i);
+            row.sort_by(|&p, &q| objs[p].normalized()[0].total_cmp(&objs[q].normalized()[0]));
+            for &j in &row {
+                taken[j] = true;
+            }
+            out.push(if let [one] = row[..] {
+                LayerEntry::Part(one)
+            } else {
+                LayerEntry::Row(row)
+            });
+        }
+        out
     }
 
-    /// 一覧・画面の共通の、クリックによる選択。`span(起点)` は、起点から `i` までの範囲の部品を返す
-    /// （一覧は並びで、画面は矩形で数える）。起点を範囲に使えないときは `None`。
-    /// - 修飾なし: その部品だけを選び、起点にする。
-    /// - Ctrl: その部品を選択に加える／外し、起点にする。
-    /// - Shift: 起点から `i` までの範囲を選ぶ（起点は動かさない）。Ctrl+Shift は、範囲を選択に加える。
+    /// 一覧・画面の共通の、クリックによる選択。`members` は、クリックで選ぶ部品（一覧の行なら、行の部品すべて。先頭が起点）。
+    /// `span(起点)` は、起点から `members` までの範囲の部品を返す（一覧は並びで、画面は矩形で数える）。起点を範囲に使えないときは `None`。
+    /// - 修飾なし: `members` だけを選び、起点にする。
+    /// - Ctrl: `members` を選択に加える（すべて選ばれているときは外す）。起点にする。
+    /// - Shift: 起点から `members` までの範囲を選ぶ（起点は動かさない）。Ctrl+Shift は、範囲を選択に加える。
     ///
     /// 起点がない・選択から外れている・範囲に使えないときの Shift は、Shift なしと同じに扱う
     pub fn click_select_by(
         &mut self,
-        i: usize,
+        members: &[usize],
         mods: ClickMods,
         span: impl FnOnce(usize) -> Option<Vec<usize>>,
     ) {
+        let Some(&first) = members.first() else {
+            return;
+        };
         let range = self
             .anchor
             .filter(|a| self.selection.contains(a))
@@ -315,13 +362,42 @@ impl Document {
             return;
         }
         if mods.toggle {
-            if !self.selection.remove(&i) {
-                self.selection.insert(i);
+            if members.iter().all(|m| self.selection.contains(m)) {
+                for m in members {
+                    self.selection.remove(m);
+                }
+            } else {
+                self.selection.extend(members.iter().copied());
             }
         } else {
-            self.selection = [i].into();
+            self.selection = members.iter().copied().collect();
         }
-        self.anchor = Some(i);
+        self.anchor = Some(first);
+    }
+
+    /// 一覧の、クリックによる選択。`groups` は、一覧に出ている並び（各行の部品。範囲選択は、行を単位に数える）
+    pub fn click_select_groups(
+        &mut self,
+        members: &[usize],
+        mods: ClickMods,
+        groups: &[Vec<usize>],
+    ) {
+        let Some(&first) = members.first() else {
+            return;
+        };
+        let Some(at) = groups.iter().position(|g| g.contains(&first)) else {
+            return;
+        };
+        self.click_select_by(members, mods, |anchor| {
+            let from = groups.iter().position(|g| g.contains(&anchor))?;
+            Some(
+                groups[from.min(at)..=from.max(at)]
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .collect(),
+            )
+        });
     }
 
     /// 範囲選択の起点を、`i` にする（ドラッグで部品を選び直したときなど）
@@ -1543,6 +1619,12 @@ mod tests {
         assert!(!d.add_row_below());
     }
 
+    /// 部品 1 つが 1 行の一覧（並びは `order`）での、クリックによる選択
+    fn click_order(d: &mut Document, i: usize, mods: ClickMods, order: &[usize]) {
+        let groups: Vec<Vec<usize>> = order.iter().map(|&x| vec![x]).collect();
+        d.click_select_groups(&[i], mods, &groups);
+    }
+
     /// 部品が 5 つ（番号 0〜4）の文書
     fn doc_with_five() -> Document {
         let mut d = Document::new(Template::default(), "t", None);
@@ -1552,6 +1634,70 @@ mod tests {
         }
         d.selection.clear();
         d
+    }
+
+    #[test]
+    fn layer_entries_group_rows_and_follow_the_position() {
+        use LayerEntry::{Part, Row};
+        // (名前, 部品 (種類 'c' = 文字項目 / 'p' = 写真枠, 矩形) を作った順, 一覧の並び)
+        type Case = (&'static str, Vec<(char, [f64; 4])>, Vec<LayerEntry>);
+        let cases: Vec<Case> = vec![
+            (
+                "行は、作った順でなく、上から並ぶ",
+                vec![
+                    ('c', [0.0, 0.5, 1.0, 0.75]),
+                    ('c', [1.0, 0.5, 2.0, 0.75]),
+                    ('c', [0.0, 0.0, 1.0, 0.25]),
+                    ('c', [1.0, 0.0, 2.0, 0.25]),
+                ],
+                vec![Row(vec![2, 3]), Row(vec![0, 1])],
+            ),
+            (
+                "行の中は、作った順でなく、左から並ぶ",
+                vec![
+                    ('c', [2.0, 0.0, 3.0, 0.25]),
+                    ('c', [1.0, 0.0, 2.0, 0.25]),
+                    ('c', [0.0, 0.0, 1.0, 0.25]),
+                ],
+                vec![Row(vec![2, 1, 0])],
+            ),
+            (
+                "写真枠は、位置の順で、行とは別の項目",
+                vec![
+                    ('c', [3.0, 0.0, 4.0, 0.25]),
+                    ('c', [4.0, 0.0, 5.0, 0.25]),
+                    ('p', [0.0, 0.0, 2.0, 2.0]),
+                    ('p', [0.0, 3.0, 2.0, 4.0]),
+                ],
+                vec![Part(2), Row(vec![0, 1]), Part(3)],
+            ),
+            (
+                "隙間のある文字は、別々の項目",
+                vec![('c', [0.0, 0.0, 1.0, 0.25]), ('c', [3.0, 0.0, 4.0, 0.25])],
+                vec![Part(0), Part(1)],
+            ),
+            (
+                "1 つだけの文字は、単独の項目",
+                vec![('c', [0.0, 0.0, 1.0, 0.25])],
+                vec![Part(0)],
+            ),
+            (
+                "上端が少しずれていても、同じ行（行の高さの中に収まる）",
+                vec![('c', [0.0, 0.0, 1.0, 0.25]), ('c', [1.0, 0.01, 2.0, 0.26])],
+                vec![Row(vec![0, 1])],
+            ),
+        ];
+        for (name, parts, want) in cases {
+            let mut d = Document::new(Template::default(), "t", None);
+            for (kind, rect) in parts {
+                if kind == 'p' {
+                    d.add_picture(rect);
+                } else {
+                    d.add_caption("字", "", false, rect);
+                }
+            }
+            assert_eq!(d.layer_entries(), want, "{name}");
+        }
     }
 
     #[test]
@@ -1631,7 +1777,7 @@ mod tests {
         for (name, order, clicks, want) in cases {
             let mut d = doc_with_five();
             for (i, shift, toggle) in clicks {
-                d.click_select(i, ClickMods { shift, toggle }, &order);
+                click_order(&mut d, i, ClickMods { shift, toggle }, &order);
             }
             let got: Vec<usize> = d.selection.iter().copied().collect();
             assert_eq!(got, want, "{name}");
@@ -1641,8 +1787,8 @@ mod tests {
     #[test]
     fn click_select_ignores_a_part_that_is_not_in_the_list() {
         let mut d = doc_with_five();
-        d.click_select(1, ClickMods::default(), &[4, 3, 2, 1, 0]);
-        d.click_select(9, ClickMods::default(), &[4, 3, 2, 1, 0]);
+        click_order(&mut d, 1, ClickMods::default(), &[4, 3, 2, 1, 0]);
+        click_order(&mut d, 9, ClickMods::default(), &[4, 3, 2, 1, 0]);
         assert_eq!(d.selection, [1].into());
     }
 
@@ -1655,9 +1801,9 @@ mod tests {
         };
         // 起点が選択から外れた（画面など、ほかの操作で選択が変わった）あとの Shift は、ふつうのクリック
         let mut d = doc_with_five();
-        d.click_select(1, ClickMods::default(), &order);
+        click_order(&mut d, 1, ClickMods::default(), &order);
         d.selection = [4].into();
-        d.click_select(3, shift, &order);
+        click_order(&mut d, 3, shift, &order);
         assert_eq!(d.selection, [3].into(), "選択から外れた起点");
 
         // 部品の番号がずれる操作のあとは、起点が選択に含まれていても使わない
@@ -1679,12 +1825,12 @@ mod tests {
         ];
         for (name, op) in ops {
             let mut d = doc_with_five();
-            d.click_select(2, ClickMods::default(), &order);
+            click_order(&mut d, 2, ClickMods::default(), &order);
             op(&mut d);
             d.select_all();
             let last = d.template.objects.len() - 1;
             let order: Vec<usize> = (0..=last).rev().collect();
-            d.click_select(last, shift, &order);
+            click_order(&mut d, last, shift, &order);
             assert_eq!(d.selection, [last].into(), "{name}");
         }
     }

@@ -51,7 +51,7 @@ impl Tool {
     pub fn hint(self) -> &'static str {
         match self {
             Tool::Select => {
-                "クリックで選択、ドラッグで移動。Shift で追加選択、何もない所をドラッグで範囲選択"
+                "クリックで選択、ドラッグで移動。Ctrl+クリックで追加・解除、Shift+クリックで範囲選択、何もない所をドラッグで範囲選択"
             }
             Tool::Picture => "カード上をドラッグして写真枠を描きます",
             Tool::Label => "ドラッグして固定の文字（項目名など）を置きます",
