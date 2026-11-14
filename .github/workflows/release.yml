@@ -17,7 +17,7 @@ permissions: {}
 jobs:
   draft:
     if: github.event_name == 'push'
-    uses: scottlz0310/release-automate/.github/workflows/reusable-publish-release.yml@3c860f1b178eb5b942d87c800153bc47887a7bfd # v3.2.1
+    uses: scottlz0310/release-automate/.github/workflows/reusable-publish-release.yml@b155081b04cae981e8ae3beeb37aa1c024866ea2 # v3.3.0
     permissions:
       contents: write
     with:
@@ -125,46 +125,13 @@ jobs:
   finalize:
     needs: [draft, attach]
     if: ${{ !cancelled() && needs.draft.outputs.release_state == 'draft' && needs.attach.result == 'success' }}
-    uses: scottlz0310/release-automate/.github/workflows/reusable-finalize-release.yml@3c860f1b178eb5b942d87c800153bc47887a7bfd # v3.2.1
+    uses: scottlz0310/release-automate/.github/workflows/reusable-finalize-release.yml@b155081b04cae981e8ae3beeb37aa1c024866ea2 # v3.3.0
     permissions:
       contents: write
     with:
       tag_name: ${{ needs.draft.outputs.tag_name }}
       target_sha: ${{ needs.draft.outputs.target_sha }}
-
-  # 公開が確定した後に、Scoop バケットの Update Manifests を起動する（#58）。起動しなくても、バケットの
-  # 毎日の cron が新しい版を拾うので、リリースは失敗にしない。トークンや起動の失敗は、警告として残す。
-  # バケットの更新 PR のマージは、バケット側の運用どおり人が行う。
-  notify-scoop-bucket:
-    needs: finalize
-    # finalize が成功したとき（= この実行でリリースを公開したとき）だけ。リリースでない push では finalize が skipped
-    if: ${{ !cancelled() && needs.finalize.result == 'success' }}
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      # 起動だけに必要な権限（バケットの Actions の書き込み）に絞り、バケット 1 つに限ったトークンを発行する。
-      # Release Bot（GitHub App）に actions:write が無い・承認されていないと、ここで失敗する
-      - name: Generate GitHub App token for the bucket
-        id: app_token
-        continue-on-error: true
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ secrets.RELEASE_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: scoop-bucket
-          permission-actions: write
-
-      - name: Start Update Manifests in the bucket
-        id: dispatch
-        if: steps.app_token.outcome == 'success'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token }}
-          BUCKET: ${{ github.repository_owner }}/scoop-bucket
-        run: gh workflow run update.yml --repo "$BUCKET"
-
-      - name: Warn that the bucket was not started
-        if: steps.app_token.outcome != 'success' || steps.dispatch.outcome != 'success'
-        run: |
-          echo "::warning title=Scoop バケットを起動できなかった::リリースは公開済み。バケットの Update Manifests は、毎日の cron（03:17 UTC）か、手動起動で新しい版を拾う。トークンの発行は ${{ steps.app_token.outcome }}、起動は ${{ steps.dispatch.outcome }}。"
+      notify_scoop_bucket: true
+    secrets:
+      RELEASE_BOT_CLIENT_ID: ${{ secrets.RELEASE_BOT_CLIENT_ID }}
+      RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
