@@ -172,15 +172,15 @@ impl StudioApp {
                         .max_height(rows_height)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
-                    for i in 0..n {
+                    for (i, field) in spec.fields.iter_mut().enumerate() {
                         ui.horizontal(|ui| {
                             let row = ui.label(format!("{} 行目", i + 1));
                             egui::ComboBox::from_id_salt(("table-field", i))
                                 .width(200.0)
-                                .selected_text(spec.fields[i].clone())
+                                .selected_text(field.clone())
                                 .show_ui(ui, |ui| {
                                     for f in doc::KNOWN_FIELDS {
-                                        ui.selectable_value(&mut spec.fields[i], (*f).to_string(), *f);
+                                        ui.selectable_value(field, (*f).to_string(), *f);
                                     }
                                 })
                                 .response
