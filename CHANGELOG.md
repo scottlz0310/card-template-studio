@@ -6,6 +6,10 @@
 
 - `release.yml` と `prepare-release.yml` の `release-automate` 参照を `v3.3.0` に更新し、`release.yml` に独自定義していた `notify-scoop-bucket` ジョブ（`workflow_dispatch`）を廃止して `reusable-finalize-release.yml` の `notify_scoop_bucket: true`（`repository_dispatch`）へ移行
 
+### Fixed
+
+- Rust 1.100.0 の Clippy（`clippy::needless_range_loop`）で失敗していた「表組の挿入」モーダル（`src/app/modals.rs`）の項目一覧ループを `.iter_mut().enumerate()` に修正（Refs #77）
+
 ## [0.1.4] - 2026-11-12
 
 ### Changed

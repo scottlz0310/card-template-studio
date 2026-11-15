@@ -1008,6 +1008,12 @@ fn insert_table_dialog_edits_the_rows_and_arms_the_table_tool() {
     // 最初は標準の 6 行
     assert_eq!(fields(&mut h).len(), 6);
     assert_eq!(fields(&mut h)[0], "工種");
+    // 1 行目の項目を ComboBox で「写真タイトル」に変える
+    h.get_by_label("1 行目").click();
+    h.run();
+    h.get_all_by_label("写真タイトル").last().unwrap().click();
+    h.run();
+    assert_eq!(fields(&mut h)[0], "写真タイトル");
     // 2 行目を下へ（種別 ↔ 細別）、1 行目を削除、行を追加
     h.get_by_label("2 行目を下へ").click();
     h.run();
